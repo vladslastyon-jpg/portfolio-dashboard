@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Портфель — Панель управления</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="scanline-overlay" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand-mark" aria-hidden="true">◈</div>
+    <div class="brand-text">
+      <div class="brand-title">АНАЛИЗ ПОРТФЕЛЯ</div>
+      <div class="brand-subtitle">Личная панель управления · v1.0</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="currency-toggle" role="group" aria-label="Валюта отображения">
+      <button class="ccy-btn is-active" data-ccy="USD">USD</button>
+      <button class="ccy-btn" data-ccy="EUR">EUR</button>
+    </div>
+    <button id="refreshBtn" class="btn-ghost" title="Обновить данные">
+      <span class="refresh-icon">↻</span> Обновить
+    </button>
+    <button id="signInBtn" class="btn-primary">Войти через Google</button>
+    <div id="userChip" class="user-chip" hidden>
+      <span id="userEmail"></span>
+      <button id="signOutBtn" class="link-btn">выйти</button>
+    </div>
+  </div>
+</header>
+
+<div id="statusBar" class="status-bar" hidden></div>
+
+<main id="app" class="app-grid" hidden>
+
+  <!-- 3.1 KPI STRIP -->
+  <section class="panel kpi-strip" aria-label="Обзор портфеля">
+    <div class="kpi-cell">
+      <div class="kpi-label">Инвестировано</div>
+      <div class="kpi-value" id="kpiInvested">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Рыночная стоимость</div>
+      <div class="kpi-value" id="kpiMarketValue">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прибыль</div>
+      <div class="kpi-value" id="kpiProfit">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Доходность</div>
+      <div class="kpi-value" id="kpiProfitPct">—</div>
+    </div>
+    <div class="kpi-rail" aria-hidden="true"><div class="kpi-rail-fill" id="kpiRailFill"></div></div>
+  </section>
+
+  <!-- 3.3 GOAL PROGRESS -->
+  <section class="panel goal-panel" aria-label="Прогресс к цели">
+    <div class="panel-header">
+      <h2>Прогресс к цели</h2>
+      <span class="panel-note" id="goalNote">—</span>
+    </div>
+    <div class="goal-track">
+      <div class="goal-track-fill" id="goalTrackFill"></div>
+      <div class="goal-track-marker" id="goalMarker1" style="left:100%"><span>500K</span></div>
+      <div class="goal-track-marker" id="goalMarker2" style="left:100%"><span>1M</span></div>
+    </div>
+    <div class="goal-figures">
+      <div><span class="figure-label">Сейчас</span><span class="figure-value" id="goalCurrent">—</span></div>
+      <div><span class="figure-label">Осталось до $500K</span><span class="figure-value" id="goalRemaining">—</span></div>
+    </div>
+  </section>
+
+  <!-- 3.2 PERFORMANCE -->
+  <section class="panel chart-panel" aria-label="Динамика стоимости портфеля">
+    <div class="panel-header">
+      <h2>Динамика стоимости портфеля</h2>
+    </div>
+    <canvas id="valueChart" height="110"></canvas>
+  </section>
+
+  <section class="panel periods-panel" aria-label="Доходность по периодам">
+    <div class="panel-header">
+      <h2>Доходность (Modified Dietz)</h2>
+    </div>
+    <table class="ledger-table" id="periodsTable">
+      <thead>
+        <tr><th>Период</th><th class="num">Доходность</th></tr>
+      </thead>
+      <tbody id="periodsBody">
+        <tr><td colspan="2" class="empty-row">Нет данных</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 3.4 ALLOCATION -->
+  <section class="panel allocation-panel" aria-label="Структура портфеля">
+    <div class="panel-header">
+      <h2>Структура портфеля</h2>
+    </div>
+    <div class="allocation-body">
+      <canvas id="allocationChart" width="220" height="220"></canvas>
+      <table class="ledger-table" id="allocationTable">
+        <thead><tr><th>Актив</th><th class="num">Доля</th><th class="num">Стоимость</th></tr></thead>
+        <tbody id="allocationBody"><tr><td colspan="3" class="empty-row">Нет данных</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3.7 CASH FLOW -->
+  <section class="panel cashflow-panel" aria-label="Денежные потоки">
+    <div class="panel-header">
+      <h2>Денежные потоки</h2>
+    </div>
+    <canvas id="cashflowChart" height="90"></canvas>
+  </section>
+
+  <!-- 3.8 TRANSACTIONS -->
+  <section class="panel transactions-panel" aria-label="Детализация по сделкам">
+    <div class="panel-header">
+      <h2>Транзакции</h2>
+      <div class="filter-row">
+        <select id="tickerFilter"><option value="">Все тикеры</option></select>
+        <input type="text" id="dateFilterFrom" placeholder="с ГГГГ-ММ-ДД" />
+        <input type="text" id="dateFilterTo" placeholder="по ГГГГ-ММ-ДД" />
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="txTable">
+        <thead>
+          <tr><th>Дата</th><th>Тикер</th><th class="num">Кол-во</th><th class="num">Цена</th><th class="num">Сумма</th></tr>
+        </thead>
+        <tbody id="txBody"><tr><td colspan="5" class="empty-row">Нет данных</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<div id="signedOutHint" class="signed-out-hint">
+  <div class="hint-mark">◈</div>
+  <p>Войдите через Google, чтобы подключить панель к таблице «Анализ портфеля».</p>
+  <p class="hint-small">Данные читаются напрямую из вашей Google Таблицы через официальный Google Sheets API. Ничего не публикуется по ссылке — доступ работает только пока вы авторизованы в своём аккаунте.</p>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
