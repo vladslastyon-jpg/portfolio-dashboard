@@ -21,6 +21,8 @@ window.DASHBOARD_CONFIG = {
     assetHistory: "Asset_History",
     goldHistory: "Gold_History",
     dashboardInputs: "Dashboard_Inputs",
+    actualPortfolio: "Актуальный Портфель",
+    portfolio500k: "портфель 500к",
   },
 
   // Права доступа: чтение + запись (запись понадобится на следующем этапе для
