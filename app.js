@@ -22,6 +22,8 @@ const raw = {
   assetHistory: null,
   goldHistory: null,
   dashboardInputs: null,
+  actualPortfolio: null,
+  portfolio500k: null,
 };
 
 // вычисленные данные
@@ -47,6 +49,11 @@ const ASSET_COLORS = {
   Портфель: "#E9E6DC",
 };
 let assetChartVisibility = { Портфель: true, VOO: false, CSPX: false, SOXX: false, SMH: false, GOOGL: false, "4GLD": false };
+let selectedAssetPeriod = "all";
+let selectedValuePeriod = "all";
+
+const PERIOD_DAYS_BACK = { "1d": 1, "1w": 7, "1m": 30, "1y": 365, "5y": 1825 };
+const PERIOD_YEARS_BACK = { "3y": 3, "5y": 5, "10y": 10 };
 
 /* -------------------------- helpers -------------------------- */
 
@@ -152,7 +159,9 @@ function buildRanges() {
     `${s.transactions}!A1:D3000`,
     `${s.assetHistory}!A1:ZZ3000`,
     `${s.goldHistory}!A9:D3500`,
-    `${s.dashboardInputs}!A1:D40`,
+    `${s.dashboardInputs}!A1:D50`,
+    `${s.actualPortfolio}!B1:T20`,
+    `${s.portfolio500k}!A1:G30`,
   ];
 }
 
@@ -181,6 +190,8 @@ async function fetchAll() {
     raw.assetHistory = vr[4].values || [];
     raw.goldHistory = vr[5].values || [];
     raw.dashboardInputs = vr[6].values || [];
+    raw.actualPortfolio = vr[7].values || [];
+    raw.portfolio500k = vr[8].values || [];
 
     computeAll();
     renderAll();
@@ -204,11 +215,15 @@ function computeAll() {
   computePeriods();
   computeMonthly();
   computeTransactions();
+  computeTickerDetailTable();
+  computePlanActual();
   computeAllocation();
   computeCashflowMonthly();
+  computeCashflowDaily();
   computeGoals();
   computeAssetAnnualReturns();
   computeMonthGrid();
+  computeDailyPortfolioValue();
 }
 
 /* ---- helpers used by drill-down and annual comparison ---- */
@@ -304,22 +319,35 @@ function computeMonthGrid() {
 
 function computeMonthDrilldown(year, monthIndex, monthEntry) {
   const start = new Date(year, monthIndex, 1);
+  const dayBeforeStart = new Date(start.getTime() - 86400000);
   const end = parseSheetDate(monthEntry.date) || new Date(year, monthIndex + 1, 0);
+
   const rows = [];
-  let totalStart = 0, totalEnd = 0;
+  let weightedNumerator = 0;
+  let totalStartValue = 0;
+
   CORE_TICKERS.forEach((ticker) => {
-    const sharesStart = sharesAsOfDate(ticker, new Date(start.getTime() - 86400000));
+    const sharesStart = sharesAsOfDate(ticker, dayBeforeStart);
     const sharesEnd = sharesAsOfDate(ticker, end);
     if (Math.abs(sharesStart) < 1e-9 && Math.abs(sharesEnd) < 1e-9) return;
+
     const priceStart = priceOnOrBefore(ticker, start);
     const priceEnd = priceOnOrBefore(ticker, end);
-    const valueStart = sharesStart * priceStart;
-    const valueEnd = sharesEnd * priceEnd;
-    totalStart += valueStart;
-    totalEnd += valueEnd;
-    rows.push({ ticker, valueStart, valueEnd, delta: valueEnd - valueStart, deltaPct: valueStart > 0 ? (valueEnd - valueStart) / valueStart : null });
+    const returnPct = priceStart > 0 ? priceEnd / priceStart - 1 : null;
+    const qtyDelta = sharesEnd - sharesStart;
+
+    const startValue = sharesStart * priceStart;
+    totalStartValue += startValue;
+    if (returnPct !== null) weightedNumerator += startValue * returnPct;
+
+    rows.push({ ticker, priceStart, priceEnd, returnPct, qtyDelta });
   });
-  rows.push({ ticker: "Портфель целиком", valueStart: totalStart, valueEnd: totalEnd, delta: totalEnd - totalStart, deltaPct: totalStart > 0 ? (totalEnd - totalStart) / totalStart : null, isTotal: true });
+
+  const portfolioReturn = monthEntry.profitPct !== null && monthEntry.profitPct !== undefined
+    ? monthEntry.profitPct
+    : (totalStartValue > 0 ? weightedNumerator / totalStartValue : null);
+
+  rows.push({ ticker: "Портфель целиком", priceStart: null, priceEnd: null, returnPct: portfolioReturn, qtyDelta: null, isTotal: true });
   return rows;
 }
 
@@ -394,24 +422,6 @@ function computeTransactions() {
   derived.txRows = out;
 }
 
-function parseTickerGroups() {
-  const rows = raw.dashboardInputs || [];
-  const map = {};
-  // Блок C начинается с маркера "BLOCK_C_GROUPS" — ищем его строку, данные через 2 строки ниже
-  let start = -1;
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i] && rows[i][0] === "BLOCK_C_GROUPS") { start = i; break; }
-  }
-  if (start === -1) return map;
-  for (let i = start + 2; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r || !r[0]) break;
-    if (r[0] === "BLOCK_D_NETWORTH") break;
-    map[r[0]] = r[1];
-  }
-  return map;
-}
-
 function parseGoals() {
   const rows = raw.dashboardInputs || [];
   let start = -1;
@@ -432,34 +442,136 @@ function computeGoals() {
   derived.goals = parseGoals();
 }
 
+/**
+ * Читает лист «Актуальный Портфель» НАПРЯМУЮ — никаких пересчётов.
+ * Структура (диапазон B1:T20): строка 1 = заголовки, строка 2 = ИТОГО (жёлтая),
+ * строки 3+ = по одному тикеру. Колонки (0-based от B):
+ * 0 Тикер, 1 Кол-во, 2 Ср.цена входа, 3 Текущая цена, 4 Сегодня$, 5 Доля,
+ * 6 PL%, 7 PL$, 8..18 периоды (Today,7 days,30 days,90 days,YTD,1Y,2Y,3Y,4Y,5Y,Весь период)
+ */
+const PERIOD_LABELS = ["Today", "7 days", "30 days", "90 days", "YTD", "1Y", "2Y", "3Y", "4Y", "5Y", "Весь период"];
+
+function parseActualPortfolioSheet() {
+  const rows = raw.actualPortfolio || [];
+  if (rows.length < 3) return { total: null, rows: [] };
+
+  const totalRaw = rows[1] || [];
+  const total = {
+    value: parseNum(totalRaw[4]),
+    weight: parseNum(totalRaw[5]),
+    plPct: parseNum(totalRaw[6]),
+    plAbs: parseNum(totalRaw[7]),
+    periods: {},
+  };
+  PERIOD_LABELS.forEach((label, i) => { total.periods[label] = numOrNull(totalRaw[8 + i]); });
+
+  const tickerRows = [];
+  for (let i = 2; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r[0]) continue;
+    const row = {
+      ticker: r[0],
+      shares: parseNum(r[1]),
+      avgCost: (r[2] === "" || r[2] === undefined || r[2] === null) ? null : parseNum(r[2]),
+      price: (r[3] === "" || r[3] === undefined || r[3] === null) ? null : parseNum(r[3]),
+      value: parseNum(r[4]),
+      weight: parseNum(r[5]),
+      plPct: numOrNull(r[6]),
+      plAbs: numOrNull(r[7]),
+      periods: {},
+    };
+    PERIOD_LABELS.forEach((label, idx) => { row.periods[label] = numOrNull(r[8 + idx]); });
+    tickerRows.push(row);
+  }
+
+  return { total, rows: tickerRows };
+}
+
+function numOrNull(v) {
+  if (v === "" || v === undefined || v === null || v === "-" || v === "−") return null;
+  const n = parseNum(v);
+  return isNaN(n) ? null : n;
+}
+
+function computeTickerDetailTable() {
+  derived.actualPortfolio = parseActualPortfolioSheet();
+}
+
+/**
+ * Читает лист «портфель 500к» НАПРЯМУЮ — план/факт по группам и тикерам,
+ * плюс авторитетные цифры цели (текущий объём / цель / осталось добрать).
+ * Структура: B2=текущий объём, D2=цель, G2=осталось добрать.
+ * С 6-й строки: блоки — строка группы, затем строки тикеров, разделены пустой строкой.
+ */
+function parsePortfolio500kSheet() {
+  const rows = raw.portfolio500k || [];
+  if (rows.length < 2) return { currentTotal: null, targetTotal: null, remaining: null, groups: [] };
+
+  const headerValueRow = rows[1] || [];
+  const currentTotal = numOrNull(headerValueRow[1]);
+  const targetTotal = numOrNull(headerValueRow[3]);
+  const remaining = numOrNull(headerValueRow[6]);
+
+  let totalRowIdx = rows.findIndex((r) => r && typeof r[0] === "string" && r[0].toUpperCase().includes("ПОРТФЕЛЬ"));
+  if (totalRowIdx === -1) totalRowIdx = 5;
+
+  const groups = [];
+  let i = totalRowIdx + 1;
+  while (i < rows.length) {
+    const row = rows[i];
+    if (!row || !row[0]) { i++; continue; }
+    const groupName = row[0];
+    const group = {
+      group: groupName,
+      factUSD: numOrNull(row[1]), factPct: numOrNull(row[2]),
+      planUSD: numOrNull(row[3]), planPct: numOrNull(row[4]),
+      tickers: [],
+    };
+    i++;
+    while (i < rows.length && rows[i] && rows[i][0] && !/^[IVX]+\./.test(rows[i][0])) {
+      const tr = rows[i];
+      group.tickers.push({
+        ticker: tr[0],
+        factUSD: numOrNull(tr[1]), factPct: numOrNull(tr[2]),
+        planUSD: numOrNull(tr[3]), planPct: numOrNull(tr[4]),
+        deltaUSD: numOrNull(tr[5]), planFactPct: numOrNull(tr[6]),
+      });
+      i++;
+    }
+    groups.push(group);
+  }
+  return { currentTotal, targetTotal, remaining, groups };
+}
+
+function computePlanActual() {
+  derived.planActual = parsePortfolio500kSheet();
+}
+
+function getTickerGroupMap() {
+  const map = {};
+  (derived.planActual?.groups || []).forEach((g) => {
+    g.tickers.forEach((t) => { map[t.ticker] = g.group; });
+  });
+  return map;
+}
+
+function getCoreTickers() {
+  return (derived.actualPortfolio?.rows || [])
+    .map((r) => r.ticker)
+    .filter((t) => t !== "Cash");
+}
+
 function computeAllocation() {
-  const groups = parseTickerGroups();
-  const assetRows = raw.assetHistory || [];
-  if (assetRows.length === 0) { derived.allocation = []; return; }
-
-  const header = assetRows[0];
-  const lastDataRow = assetRows[assetRows.length - 1];
-
-  // текущие суммарные позиции по тикеру
-  const shares = {};
-  derived.txRows.forEach((t) => {
-    if (t.ticker === "Cash") return; // наличные не учитываются как ценные бумаги
-    shares[t.ticker] = (shares[t.ticker] || 0) + t.qty;
-  });
-
-  const alloc = [];
-  let totalValue = 0;
-  Object.keys(shares).forEach((ticker) => {
-    const qty = shares[ticker];
-    if (Math.abs(qty) < 1e-9) return; // позиция закрыта
-    const colIdx = header.indexOf(ticker);
-    const price = colIdx >= 0 ? parseNum(lastDataRow[colIdx]) : 0;
-    const value = qty * price;
-    totalValue += value;
-    alloc.push({ ticker, group: groups[ticker] || "Без группы", shares: qty, price, value });
-  });
-
-  alloc.forEach((a) => { a.weight = totalValue > 0 ? a.value / totalValue : 0; });
+  const groups = getTickerGroupMap();
+  const rows = (derived.actualPortfolio?.rows || []).filter((r) => r.ticker !== "Cash");
+  const alloc = rows.map((r) => ({
+    ticker: r.ticker,
+    group: groups[r.ticker] || "Без группы",
+    shares: r.shares,
+    price: r.price,
+    value: r.value,
+    weight: r.weight,
+  }));
   alloc.sort((a, b) => b.value - a.value);
   derived.allocation = alloc;
 }
@@ -475,6 +587,71 @@ function computeCashflowMonthly() {
   });
   const keys = Object.keys(byMonth).sort();
   derived.cashflowMonthly = keys.map((k) => ({ month: k, amount: byMonth[k] }));
+}
+
+function computeCashflowDaily() {
+  const byDay = {};
+  derived.txRows.forEach((t) => {
+    if (t.ticker === "Cash") return;
+    const d = parseSheetDate(t.date);
+    if (!d) return;
+    const key = d.toISOString().slice(0, 10);
+    byDay[key] = (byDay[key] || 0) + t.amount;
+  });
+  const keys = Object.keys(byDay).sort();
+  derived.cashflowDaily = keys.map((k) => ({ date: k, amount: byDay[k] }));
+}
+
+/**
+ * Строит дневной ряд стоимости портфеля из Asset_History (цены на каждый день)
+ * умноженные на количество бумаг на эту дату (из Транзакции). Идём по датам
+ * последовательно и просто продвигаем указатель по отсортированным сделкам —
+ * O(n), без вложенного цикла по всем транзакциям на каждый день.
+ */
+function computeDailyPortfolioValue() {
+  const rows = raw.assetHistory || [];
+  if (rows.length < 2) { derived.dailyValue = []; return; }
+  const header = rows[0];
+  const tickerCols = header
+    .map((name, col) => ({ ticker: name, col }))
+    .filter((tc) => tc.col > 0 && tc.ticker);
+
+  const txByTicker = {};
+  derived.txRows.forEach((t) => {
+    if (t.ticker === "Cash") return;
+    if (!txByTicker[t.ticker]) txByTicker[t.ticker] = [];
+    txByTicker[t.ticker].push(t);
+  });
+  Object.values(txByTicker).forEach((arr) => arr.sort((a, b) => {
+    const da = parseSheetDate(a.date), db = parseSheetDate(b.date);
+    return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+  }));
+
+  const sharesState = {};
+  const txIndex = {};
+  tickerCols.forEach(({ ticker }) => { sharesState[ticker] = 0; txIndex[ticker] = 0; });
+
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const date = parseSheetDate(row[0]);
+    if (!date) continue;
+    let total = 0;
+    tickerCols.forEach(({ ticker, col }) => {
+      const txs = txByTicker[ticker] || [];
+      while (txIndex[ticker] < txs.length) {
+        const txDate = parseSheetDate(txs[txIndex[ticker]].date);
+        if (txDate && txDate <= date) {
+          sharesState[ticker] += txs[txIndex[ticker]].qty;
+          txIndex[ticker]++;
+        } else break;
+      }
+      const price = parseNum(row[col]);
+      if (Math.abs(sharesState[ticker]) > 1e-9 && price) total += sharesState[ticker] * price;
+    });
+    if (total > 0) out.push({ date: row[0], value: total });
+  }
+  derived.dailyValue = out;
 }
 
 function parseSheetDate(v) {
@@ -504,6 +681,8 @@ function renderAll() {
   renderAssetCheckboxes();
   renderAssetsReturnChart();
   renderMonthGrid();
+  renderTickerDetailTable();
+  renderPlanActual();
 }
 
 function renderAssetCheckboxes() {
@@ -532,10 +711,31 @@ function renderAssetCheckboxes() {
   });
 }
 
+function getAssetYearRange() {
+  const full = derived.assetAnnualReturns;
+  if (!full || !full.years.length) return [null, null];
+  const maxY = full.years[full.years.length - 1];
+  const yearsBack = PERIOD_YEARS_BACK[selectedAssetPeriod];
+  if (!yearsBack) return [full.years[0], maxY];
+  return [Math.max(maxY - (yearsBack - 1), full.years[0]), maxY];
+}
+
 function renderAssetsReturnChart() {
-  const data = derived.assetAnnualReturns;
-  if (!data || !data.years.length) return;
+  const full = derived.assetAnnualReturns;
+  if (!full || !full.years.length) return;
   const ctx = document.getElementById("assetsReturnChart");
+
+  const [fromY, toY] = getAssetYearRange();
+  if (fromY === null) return;
+  const indices = full.years.map((y, i) => (y >= fromY && y <= toY ? i : -1)).filter((i) => i >= 0);
+  const years = indices.map((i) => full.years[i]);
+  const data = {
+    years,
+    portfolio: indices.map((i) => full.portfolio[i]),
+    series: {},
+    benchmark: indices.map((i) => (full.benchmark || [])[i]),
+  };
+  CORE_TICKERS.forEach((t) => { data.series[t] = indices.map((i) => full.series[t][i]); });
 
   const datasets = [];
   if (assetChartVisibility["Портфель"]) {
@@ -563,7 +763,7 @@ function renderAssetsReturnChart() {
   });
   datasets.push({
     label: "S&P 500 (ориентир, по VOO)",
-    data: (data.benchmark || []).map((v) => (v === null ? null : v * 100)),
+    data: data.benchmark.map((v) => (v === null ? null : v * 100)),
     borderColor: "#7C8798",
     backgroundColor: "transparent",
     borderWidth: 1.5,
@@ -575,7 +775,7 @@ function renderAssetsReturnChart() {
   if (assetsReturnChart) assetsReturnChart.destroy();
   assetsReturnChart = new Chart(ctx, {
     type: "line",
-    data: { labels: data.years, datasets },
+    data: { labels: years, datasets },
     options: {
       ...chartBaseOptions(false),
       plugins: {
@@ -633,15 +833,111 @@ function showMonthDrilldown(year, monthIndex) {
   tbody.innerHTML = "";
   rows.forEach((r) => {
     const tr = document.createElement("tr");
-    if (r.isTotal) tr.style.fontWeight = "600";
-    tr.innerHTML = `<td>${r.ticker}</td>
-      <td class="num">${fmtMoney(r.valueStart)}</td>
-      <td class="num">${fmtMoney(r.valueEnd)}</td>
-      <td class="num ${signClass(r.delta)}">${fmtMoney(r.delta)} (${r.deltaPct === null ? "—" : (r.deltaPct * 100).toFixed(1) + "%"})</td>`;
+    if (r.isTotal) {
+      tr.style.fontWeight = "600";
+      tr.innerHTML = `<td>${r.ticker}</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num ${signClass(r.returnPct)}">${fmtPct(r.returnPct)}</td>
+        <td class="num">—</td>`;
+    } else {
+      const qtyNote = r.qtyDelta && Math.abs(r.qtyDelta) > 1e-9
+        ? `<span class="${r.qtyDelta > 0 ? "is-positive" : "is-negative"}">${r.qtyDelta > 0 ? "+" : ""}${r.qtyDelta.toFixed(2)}</span>`
+        : "—";
+      tr.innerHTML = `<td>${r.ticker}</td>
+        <td class="num">${fmtMoney(r.priceStart)}</td>
+        <td class="num">${fmtMoney(r.priceEnd)}</td>
+        <td class="num ${signClass(r.returnPct)}">${fmtPct(r.returnPct)}</td>
+        <td class="num">${qtyNote}</td>`;
+    }
     tbody.appendChild(tr);
   });
   document.getElementById("monthDrilldown").hidden = false;
   document.getElementById("monthDrilldown").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderTickerDetailTable() {
+  const data = derived.actualPortfolio;
+  const tbody = document.getElementById("tickerDetailBody");
+  tbody.innerHTML = "";
+  if (!data || !data.rows.length) {
+    tbody.innerHTML = `<tr><td colspan="19" class="empty-row">Нет данных</td></tr>`;
+    return;
+  }
+
+  const t = data.total;
+  const totalTr = document.createElement("tr");
+  totalTr.className = "ticker-total-row";
+  totalTr.innerHTML = `<td>ПОРТФЕЛЬ</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+    <td class="num">${fmtMoney(t.value)}</td><td class="num">${(t.weight * 100).toFixed(1)}%</td>
+    <td class="num ${signClass(t.plPct)}">${fmtPct(t.plPct)}</td><td class="num ${signClass(t.plAbs)}">${fmtMoney(t.plAbs)}</td>
+    ${PERIOD_LABELS.map((l) => `<td class="num ${signClass(t.periods[l])}">${fmtPct(t.periods[l])}</td>`).join("")}`;
+  tbody.appendChild(totalTr);
+
+  data.rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.ticker}</td>
+      <td class="num">${r.shares}</td>
+      <td class="num">${r.avgCost === null ? "—" : fmtMoney(r.avgCost)}</td>
+      <td class="num">${r.price === null ? "—" : fmtMoney(r.price)}</td>
+      <td class="num">${fmtMoney(r.value)}</td>
+      <td class="num">${(r.weight * 100).toFixed(1)}%</td>
+      <td class="num ${signClass(r.plPct)}">${fmtPct(r.plPct)}</td>
+      <td class="num ${signClass(r.plAbs)}">${fmtMoney(r.plAbs)}</td>
+      ${PERIOD_LABELS.map((l) => `<td class="num ${signClass(r.periods[l])}">${fmtPct(r.periods[l])}</td>`).join("")}`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderPlanActual() {
+  const pa = derived.planActual;
+  const container = document.getElementById("planActualBody");
+  if (!pa || !pa.groups.length) { container.innerHTML = ""; return; }
+  container.innerHTML = "";
+
+  const totalPct = pa.targetTotal > 0 ? Math.min(100, (pa.currentTotal / pa.targetTotal) * 100) : 0;
+  const overallRow = document.createElement("div");
+  overallRow.className = "plan-row plan-row--total";
+  overallRow.innerHTML = `
+    <div class="plan-row-header">
+      <span>Портфель целиком</span>
+      <span class="plan-row-figures">${fmtMoney(pa.currentTotal)} из ${fmtMoney(pa.targetTotal)} · ${totalPct.toFixed(0)}%</span>
+    </div>
+    <div class="plan-bar-track"><div class="plan-bar-fill" style="width:${totalPct}%; background:var(--accent-brass);"></div></div>`;
+  container.appendChild(overallRow);
+
+  const palette = ["#C39A48", "#55A776", "#C25C50", "#3E7B8C"];
+  pa.groups.forEach((g, gi) => {
+    const hasPlan = g.planUSD && g.planUSD > 0;
+    const pct = hasPlan ? Math.min(150, (g.factUSD / g.planUSD) * 100) : (g.factUSD > 0 ? 150 : 0);
+    const color = palette[gi % palette.length];
+    const overWarn = hasPlan && g.factUSD > g.planUSD;
+
+    const groupRow = document.createElement("div");
+    groupRow.className = "plan-row plan-row--group";
+    groupRow.innerHTML = `
+      <div class="plan-row-header">
+        <span><span class="swatch" style="background:${color}"></span>${g.group}</span>
+        <span class="plan-row-figures">${fmtMoney(g.factUSD)} план ${hasPlan ? fmtMoney(g.planUSD) : "—"} · ${hasPlan ? pct.toFixed(0) + "%" : "нет плана"}</span>
+      </div>
+      <div class="plan-bar-track"><div class="plan-bar-fill ${overWarn ? "is-over" : ""}" style="width:${Math.min(100, pct)}%; background:${color};"></div></div>`;
+    container.appendChild(groupRow);
+
+    g.tickers.forEach((t) => {
+      if (!t.planUSD && !t.factUSD) return;
+      const tHasPlan = t.planUSD && t.planUSD > 0;
+      const tPct = tHasPlan ? Math.min(150, (t.factUSD / t.planUSD) * 100) : (t.factUSD > 0 ? 150 : 0);
+      const tRow = document.createElement("div");
+      tRow.className = "plan-row plan-row--ticker";
+      tRow.innerHTML = `
+        <div class="plan-row-header">
+          <span>${t.ticker}</span>
+          <span class="plan-row-figures">${fmtMoney(t.factUSD)} план ${tHasPlan ? fmtMoney(t.planUSD) : "—"} · ${tHasPlan ? tPct.toFixed(0) + "%" : "—"}</span>
+        </div>
+        <div class="plan-bar-track plan-bar-track--sm"><div class="plan-bar-fill" style="width:${Math.min(100, tPct)}%; background:${color};"></div></div>`;
+      container.appendChild(tRow);
+    });
+  });
 }
 
 function renderKPI() {
@@ -661,16 +957,14 @@ function renderKPI() {
 }
 
 function renderGoal() {
-  const k = derived.kpi;
-  if (!k) return;
-  const GOAL_500K = 500000;
-
-  const current = k.marketValue;
-  const pct = Math.min(100, (current / GOAL_500K) * 100);
+  const pa = derived.planActual;
+  if (!pa || pa.currentTotal === null) return;
+  const current = pa.currentTotal;
+  const target = pa.targetTotal || 500000;
+  const pct = Math.min(100, (current / target) * 100);
   document.getElementById("goalTrackFill").style.width = pct + "%";
   document.getElementById("goalCurrent").textContent = fmtMoney(current);
-  const remaining = Math.max(0, GOAL_500K - current);
-  document.getElementById("goalRemaining").textContent = fmtMoney(remaining);
+  document.getElementById("goalRemaining").textContent = fmtMoney(pa.remaining !== null ? pa.remaining : Math.max(0, target - current));
   document.getElementById("goalNote").textContent = `${pct.toFixed(1)}%`;
 }
 
@@ -688,10 +982,22 @@ function renderPeriods() {
   });
 }
 
+function filterByDaysPeriod(list, period, dateGetter) {
+  if (!period || period === "all") return list;
+  const daysBack = PERIOD_DAYS_BACK[period];
+  if (!daysBack || !list.length) return list;
+  const lastDate = parseSheetDate(dateGetter(list[list.length - 1]));
+  if (!lastDate) return list;
+  const cutoff = new Date(lastDate.getTime() - daysBack * 86400000);
+  return list.filter((item) => { const d = parseSheetDate(dateGetter(item)); return d && d >= cutoff; });
+}
+
 function renderValueChart() {
   const ctx = document.getElementById("valueChart");
-  const labels = derived.monthly.map((m) => formatDateLabel(m.date));
-  const data = derived.monthly.map((m) => convertCurrency(m.value, currentCurrency));
+  const source = derived.dailyValue && derived.dailyValue.length ? derived.dailyValue : derived.monthly;
+  const filtered = filterByDaysPeriod(source, selectedValuePeriod, (m) => m.date);
+  const labels = filtered.map((m) => formatDateLabel(m.date));
+  const data = filtered.map((m) => convertCurrency(m.value, currentCurrency));
 
   if (valueChart) valueChart.destroy();
   valueChart = new Chart(ctx, {
@@ -752,8 +1058,11 @@ function renderAllocation() {
 
 function renderCashflowChart() {
   const ctx = document.getElementById("cashflowChart");
-  const labels = derived.cashflowMonthly.map((c) => c.month);
-  const data = derived.cashflowMonthly.map((c) => convertCurrency(c.amount, currentCurrency));
+  const source = derived.cashflowDaily && derived.cashflowDaily.length ? derived.cashflowDaily : derived.cashflowMonthly;
+  const dateGetter = derived.cashflowDaily && derived.cashflowDaily.length ? (c) => c.date : (c) => c.month + "-01";
+  const filtered = filterByDaysPeriod(source, selectedValuePeriod, dateGetter);
+  const labels = filtered.map((c) => c.date || c.month);
+  const data = filtered.map((c) => convertCurrency(c.amount, currentCurrency));
 
   if (cashflowChart) cashflowChart.destroy();
   cashflowChart = new Chart(ctx, {
@@ -870,6 +1179,23 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("dateFilterTo").addEventListener("change", applyTransactionFilters);
   document.getElementById("closeDrilldown").addEventListener("click", () => {
     document.getElementById("monthDrilldown").hidden = true;
+  });
+
+  document.querySelectorAll("#valuePeriodButtons button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedValuePeriod = btn.dataset.period;
+      document.querySelectorAll("#valuePeriodButtons button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      renderValueChart();
+      renderCashflowChart();
+    });
+  });
+
+  document.querySelectorAll("#assetPeriodButtons button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedAssetPeriod = btn.dataset.period;
+      document.querySelectorAll("#assetPeriodButtons button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      renderAssetsReturnChart();
+    });
   });
 
   initGis();
