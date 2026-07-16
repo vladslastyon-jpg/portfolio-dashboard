@@ -70,13 +70,11 @@
   <!-- 3.3 GOAL PROGRESS -->
   <section class="panel goal-panel" aria-label="Прогресс к цели">
     <div class="panel-header">
-      <h2>Прогресс к цели</h2>
+      <h2>Прогресс к цели $500K</h2>
       <span class="panel-note" id="goalNote">—</span>
     </div>
     <div class="goal-track">
       <div class="goal-track-fill" id="goalTrackFill"></div>
-      <div class="goal-track-marker" id="goalMarker1" style="left:100%"><span>500K</span></div>
-      <div class="goal-track-marker" id="goalMarker2" style="left:100%"><span>1M</span></div>
     </div>
     <div class="goal-figures">
       <div><span class="figure-label">Сейчас</span><span class="figure-value" id="goalCurrent">—</span></div>
@@ -89,7 +87,7 @@
     <div class="panel-header">
       <h2>Динамика стоимости портфеля</h2>
     </div>
-    <canvas id="valueChart" height="110"></canvas>
+    <div class="chart-canvas-wrap"><canvas id="valueChart"></canvas></div>
   </section>
 
   <section class="panel periods-panel" aria-label="Доходность по периодам">
@@ -112,10 +110,43 @@
       <h2>Структура портфеля</h2>
     </div>
     <div class="allocation-body">
-      <canvas id="allocationChart" width="220" height="220"></canvas>
+      <div class="donut-wrap"><canvas id="allocationChart"></canvas></div>
       <table class="ledger-table" id="allocationTable">
         <thead><tr><th>Актив</th><th class="num">Доля</th><th class="num">Стоимость</th></tr></thead>
         <tbody id="allocationBody"><tr><td colspan="3" class="empty-row">Нет данных</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3.6 ASSET RETURN COMPARISON -->
+  <section class="panel returns-compare-panel" aria-label="Сравнение доходности по активам">
+    <div class="panel-header">
+      <h2>Доходность по активам (год к году)</h2>
+    </div>
+    <div id="assetCheckboxes" class="asset-checkbox-row"></div>
+    <div class="chart-canvas-wrap"><canvas id="assetsReturnChart"></canvas></div>
+  </section>
+
+  <!-- Drill-down: monthly grid -->
+  <section class="panel monthly-grid-panel" aria-label="Доходность по месяцам с детализацией">
+    <div class="panel-header">
+      <h2>Доходность по месяцам</h2>
+      <span class="panel-note">клик по ячейке → активы за месяц</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table month-grid-table" id="monthGridTable">
+        <thead id="monthGridHead"></thead>
+        <tbody id="monthGridBody"></tbody>
+      </table>
+    </div>
+    <div id="monthDrilldown" class="month-drilldown" hidden>
+      <div class="panel-header">
+        <h2 id="monthDrilldownTitle">Детализация</h2>
+        <button id="closeDrilldown" class="link-btn">закрыть</button>
+      </div>
+      <table class="ledger-table">
+        <thead><tr><th>Актив</th><th class="num">Начало месяца</th><th class="num">Конец месяца</th><th class="num">Δ $ / %</th></tr></thead>
+        <tbody id="monthDrilldownBody"></tbody>
       </table>
     </div>
   </section>
@@ -125,7 +156,7 @@
     <div class="panel-header">
       <h2>Денежные потоки</h2>
     </div>
-    <canvas id="cashflowChart" height="90"></canvas>
+    <div class="chart-canvas-wrap chart-canvas-wrap--sm"><canvas id="cashflowChart"></canvas></div>
   </section>
 
   <!-- 3.8 TRANSACTIONS -->

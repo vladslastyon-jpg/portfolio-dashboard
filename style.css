@@ -24,6 +24,10 @@
   --font-mono: 'IBM Plex Mono', monospace;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -311,6 +315,45 @@ body {
 .allocation-panel { grid-column: span 6; }
 .cashflow-panel { grid-column: span 6; }
 .transactions-panel { grid-column: span 12; }
+.returns-compare-panel { grid-column: span 12; }
+.monthly-grid-panel { grid-column: span 12; }
+
+.asset-checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.asset-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text-muted);
+  user-select: none;
+}
+.asset-chip input { accent-color: var(--accent-brass); }
+.asset-chip.is-active { color: var(--text-primary); border-color: var(--accent-brass-dim); }
+.asset-chip .swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.month-grid-table { font-size: 11.5px; }
+.month-grid-table th { text-align: center; }
+.month-grid-table td { text-align: center; padding: 6px 4px; }
+.month-grid-table td.month-cell { cursor: pointer; }
+.month-grid-table td.month-cell:hover { background: var(--surface-raised); outline: 1px solid var(--accent-brass-dim); }
+.month-grid-table td.year-cell { text-align: left; font-weight: 600; color: var(--text-muted); }
+.month-grid-table td.empty-cell { color: var(--text-faint); }
+
+.month-drilldown {
+  margin-top: 18px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 16px;
+}
 
 .allocation-body {
   display: flex;
@@ -350,6 +393,22 @@ body {
 .empty-row { text-align: center; color: var(--text-faint); font-family: var(--font-body); padding: 20px; }
 
 .table-scroll { max-height: 420px; overflow-y: auto; }
+
+.chart-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 260px;
+}
+.chart-canvas-wrap--sm { height: 200px; }
+.chart-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+
+.donut-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  flex-shrink: 0;
+}
+.donut-wrap canvas { width: 100% !important; height: 100% !important; }
 
 .filter-row { display: flex; gap: 8px; }
 .filter-row select, .filter-row input {

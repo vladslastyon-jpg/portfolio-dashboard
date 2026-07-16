@@ -38,6 +38,15 @@ const derived = {
 let valueChart = null;
 let allocationChart = null;
 let cashflowChart = null;
+let assetsReturnChart = null;
+
+const CORE_TICKERS = ["VOO", "CSPX", "SOXX", "SMH", "GOOGL", "4GLD"];
+const ASSET_COLORS = {
+  VOO: "#55A776", CSPX: "#3E7B8C", SOXX: "#C25C50",
+  SMH: "#9A6BA0", GOOGL: "#C39A48", "4GLD": "#B8934A",
+  Портфель: "#E9E6DC",
+};
+let assetChartVisibility = { Портфель: true, VOO: false, CSPX: false, SOXX: false, SMH: false, GOOGL: false, "4GLD": false };
 
 /* -------------------------- helpers -------------------------- */
 
@@ -155,7 +164,7 @@ async function fetchAll() {
   try {
     const ranges = buildRanges();
     const params = ranges.map((r) => "ranges=" + encodeURIComponent(r)).join("&");
-    const url = `${SHEETS_API}/${CFG.SPREADSHEET_ID}/values:batchGet?${params}`;
+    const url = `${SHEETS_API}/${CFG.SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
     const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
 
     if (!res.ok) {
@@ -198,6 +207,120 @@ function computeAll() {
   computeAllocation();
   computeCashflowMonthly();
   computeGoals();
+  computeAssetAnnualReturns();
+  computeMonthGrid();
+}
+
+/* ---- helpers used by drill-down and annual comparison ---- */
+
+function priceOnOrBefore(ticker, date) {
+  const rows = raw.assetHistory || [];
+  if (!rows.length) return 0;
+  const header = rows[0];
+  const colIdx = header.indexOf(ticker);
+  if (colIdx === -1) return 0;
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const d = parseSheetDate(rows[i][0]);
+    if (d && d <= date) {
+      const v = parseNum(rows[i][colIdx]);
+      if (v) return v;
+    }
+  }
+  return 0;
+}
+
+function priceOnOrAfter(ticker, date) {
+  const rows = raw.assetHistory || [];
+  if (!rows.length) return 0;
+  const header = rows[0];
+  const colIdx = header.indexOf(ticker);
+  if (colIdx === -1) return 0;
+  for (let i = 1; i < rows.length; i++) {
+    const d = parseSheetDate(rows[i][0]);
+    if (d && d >= date) {
+      const v = parseNum(rows[i][colIdx]);
+      if (v) return v;
+    }
+  }
+  return 0;
+}
+
+function sharesAsOfDate(ticker, date) {
+  let sum = 0;
+  derived.txRows.forEach((t) => {
+    if (t.ticker !== ticker) return;
+    const d = parseSheetDate(t.date);
+    if (d && d <= date) sum += t.qty;
+  });
+  return sum;
+}
+
+function computeAssetAnnualReturns() {
+  const rows = raw.assetHistory || [];
+  if (!rows.length) { derived.assetAnnualReturns = { years: [], series: {}, portfolio: {}, benchmark: {} }; return; }
+
+  const allDates = rows.slice(1).map((r) => parseSheetDate(r[0])).filter(Boolean);
+  if (!allDates.length) { derived.assetAnnualReturns = { years: [], series: {}, portfolio: {}, benchmark: {} }; return; }
+  const minYear = Math.min(...allDates.map((d) => d.getFullYear()));
+  const maxYear = Math.max(...allDates.map((d) => d.getFullYear()));
+  const years = [];
+  for (let y = minYear; y <= maxYear; y++) years.push(y);
+
+  const series = {};
+  CORE_TICKERS.forEach((ticker) => {
+    series[ticker] = years.map((y) => {
+      const start = priceOnOrAfter(ticker, new Date(y, 0, 1));
+      const end = priceOnOrBefore(ticker, new Date(y, 11, 31));
+      if (!start || !end) return null;
+      return end / start - 1;
+    });
+  });
+
+  const portfolio = years.map((y) => {
+    const monthsInYear = derived.monthly.filter((m) => {
+      const d = parseSheetDate(m.date);
+      return d && d.getFullYear() === y && m.profitPct !== null;
+    });
+    if (!monthsInYear.length) return null;
+    let compounded = 1;
+    monthsInYear.forEach((m) => { compounded *= (1 + m.profitPct); });
+    return compounded - 1;
+  });
+
+  derived.assetAnnualReturns = { years, series, portfolio, benchmark: series["VOO"] || [] };
+}
+
+function computeMonthGrid() {
+  const byYear = {};
+  derived.monthly.forEach((m) => {
+    const d = parseSheetDate(m.date);
+    if (!d) return;
+    const y = d.getFullYear();
+    if (!byYear[y]) byYear[y] = {};
+    byYear[y][d.getMonth()] = m;
+  });
+  derived.monthGrid = byYear;
+}
+
+function computeMonthDrilldown(year, monthIndex, monthEntry) {
+  const start = new Date(year, monthIndex, 1);
+  const end = parseSheetDate(monthEntry.date) || new Date(year, monthIndex + 1, 0);
+  const rows = [];
+  let totalStart = 0, totalEnd = 0;
+  CORE_TICKERS.forEach((ticker) => {
+    const sharesStart = sharesAsOfDate(ticker, new Date(start.getTime() - 86400000));
+    const sharesEnd = sharesAsOfDate(ticker, end);
+    if (Math.abs(sharesStart) < 1e-9 && Math.abs(sharesEnd) < 1e-9) return;
+    const priceStart = priceOnOrBefore(ticker, start);
+    const priceEnd = priceOnOrBefore(ticker, end);
+    const valueStart = sharesStart * priceStart;
+    const valueEnd = sharesEnd * priceEnd;
+    totalStart += valueStart;
+    totalEnd += valueEnd;
+    rows.push({ ticker, valueStart, valueEnd, delta: valueEnd - valueStart, deltaPct: valueStart > 0 ? (valueEnd - valueStart) / valueStart : null });
+  });
+  rows.push({ ticker: "Портфель целиком", valueStart: totalStart, valueEnd: totalEnd, delta: totalEnd - totalStart, deltaPct: totalStart > 0 ? (totalEnd - totalStart) / totalStart : null, isTotal: true });
+  return rows;
 }
 
 function computeEurUsd() {
@@ -378,6 +501,147 @@ function renderAll() {
   renderAllocation();
   renderCashflowChart();
   renderTransactions();
+  renderAssetCheckboxes();
+  renderAssetsReturnChart();
+  renderMonthGrid();
+}
+
+function renderAssetCheckboxes() {
+  const container = document.getElementById("assetCheckboxes");
+  if (container.dataset.built) return;
+  container.dataset.built = "1";
+  const names = ["Портфель", ...CORE_TICKERS];
+  names.forEach((name) => {
+    const label = document.createElement("label");
+    label.className = "asset-chip" + (assetChartVisibility[name] ? " is-active" : "");
+    const swatch = document.createElement("span");
+    swatch.className = "swatch";
+    swatch.style.background = ASSET_COLORS[name];
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = assetChartVisibility[name];
+    checkbox.addEventListener("change", () => {
+      assetChartVisibility[name] = checkbox.checked;
+      label.classList.toggle("is-active", checkbox.checked);
+      renderAssetsReturnChart();
+    });
+    label.appendChild(checkbox);
+    label.appendChild(swatch);
+    label.appendChild(document.createTextNode(name));
+    container.appendChild(label);
+  });
+}
+
+function renderAssetsReturnChart() {
+  const data = derived.assetAnnualReturns;
+  if (!data || !data.years.length) return;
+  const ctx = document.getElementById("assetsReturnChart");
+
+  const datasets = [];
+  if (assetChartVisibility["Портфель"]) {
+    datasets.push({
+      label: "Портфель",
+      data: data.portfolio.map((v) => (v === null ? null : v * 100)),
+      borderColor: ASSET_COLORS["Портфель"],
+      backgroundColor: "transparent",
+      borderWidth: 2.5,
+      pointRadius: 3,
+      spanGaps: true,
+    });
+  }
+  CORE_TICKERS.forEach((ticker) => {
+    if (!assetChartVisibility[ticker]) return;
+    datasets.push({
+      label: ticker,
+      data: data.series[ticker].map((v) => (v === null ? null : v * 100)),
+      borderColor: ASSET_COLORS[ticker],
+      backgroundColor: "transparent",
+      borderWidth: 1.75,
+      pointRadius: 2,
+      spanGaps: true,
+    });
+  });
+  datasets.push({
+    label: "S&P 500 (ориентир, по VOO)",
+    data: (data.benchmark || []).map((v) => (v === null ? null : v * 100)),
+    borderColor: "#7C8798",
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderDash: [5, 4],
+    pointRadius: 0,
+    spanGaps: true,
+  });
+
+  if (assetsReturnChart) assetsReturnChart.destroy();
+  assetsReturnChart = new Chart(ctx, {
+    type: "line",
+    data: { labels: data.years, datasets },
+    options: {
+      ...chartBaseOptions(false),
+      plugins: {
+        legend: { display: true, position: "top", labels: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, boxWidth: 10 } },
+        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${item.parsed.y === null ? "—" : item.parsed.y.toFixed(1) + "%"}` } },
+      },
+    },
+  });
+}
+
+function renderMonthGrid() {
+  const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+  const head = document.getElementById("monthGridHead");
+  head.innerHTML = `<tr><th>Год</th>${monthNames.map((m) => `<th>${m}</th>`).join("")}</tr>`;
+
+  const years = Object.keys(derived.monthGrid || {}).map(Number).sort();
+  const body = document.getElementById("monthGridBody");
+  body.innerHTML = "";
+  if (!years.length) {
+    body.innerHTML = `<tr><td colspan="13" class="empty-row">Нет данных</td></tr>`;
+    return;
+  }
+  years.forEach((y) => {
+    const tr = document.createElement("tr");
+    let html = `<td class="year-cell">${y}</td>`;
+    for (let m = 0; m < 12; m++) {
+      const entry = derived.monthGrid[y][m];
+      if (entry && entry.profitPct !== null) {
+        const cls = signClass(entry.profitPct);
+        html += `<td class="month-cell ${cls}" data-year="${y}" data-month="${m}">${(entry.profitPct * 100).toFixed(1)}%</td>`;
+      } else {
+        html += `<td class="empty-cell">·</td>`;
+      }
+    }
+    tr.innerHTML = html;
+    body.appendChild(tr);
+  });
+
+  body.querySelectorAll("td.month-cell").forEach((td) => {
+    td.addEventListener("click", () => {
+      const y = parseInt(td.dataset.year, 10);
+      const m = parseInt(td.dataset.month, 10);
+      showMonthDrilldown(y, m);
+    });
+  });
+}
+
+function showMonthDrilldown(year, monthIndex) {
+  const monthEntry = derived.monthGrid[year][monthIndex];
+  const rows = computeMonthDrilldown(year, monthIndex, monthEntry);
+  const monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+
+  document.getElementById("monthDrilldownTitle").textContent = `Активы за ${monthNames[monthIndex]} ${year}`;
+  const tbody = document.getElementById("monthDrilldownBody");
+  tbody.innerHTML = "";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    if (r.isTotal) tr.style.fontWeight = "600";
+    tr.innerHTML = `<td>${r.ticker}</td>
+      <td class="num">${fmtMoney(r.valueStart)}</td>
+      <td class="num">${fmtMoney(r.valueEnd)}</td>
+      <td class="num ${signClass(r.delta)}">${fmtMoney(r.delta)} (${r.deltaPct === null ? "—" : (r.deltaPct * 100).toFixed(1) + "%"})</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById("monthDrilldown").hidden = false;
+  document.getElementById("monthDrilldown").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderKPI() {
@@ -398,21 +662,16 @@ function renderKPI() {
 
 function renderGoal() {
   const k = derived.kpi;
-  const goals = derived.goals || [];
   if (!k) return;
-  const goal1 = goals.find((g) => g.amount >= 400000 && g.amount < 700000) || { amount: 500000 };
-  const goal2 = goals.find((g) => g.amount >= 900000) || { amount: 1000000 };
+  const GOAL_500K = 500000;
 
   const current = k.marketValue;
-  const pctOfGoal1 = Math.min(100, (current / goal1.amount) * 100);
-  document.getElementById("goalTrackFill").style.width = pctOfGoal1 + "%";
-  document.getElementById("goalMarker1").style.left = "100%";
-  document.getElementById("goalMarker2").style.left = Math.min(100, (goal1.amount / goal2.amount) * 100) + "%";
-
+  const pct = Math.min(100, (current / GOAL_500K) * 100);
+  document.getElementById("goalTrackFill").style.width = pct + "%";
   document.getElementById("goalCurrent").textContent = fmtMoney(current);
-  const remaining = Math.max(0, goal1.amount - current);
+  const remaining = Math.max(0, GOAL_500K - current);
   document.getElementById("goalRemaining").textContent = fmtMoney(remaining);
-  document.getElementById("goalNote").textContent = `${pctOfGoal1.toFixed(1)}% от $${(goal1.amount / 1000).toFixed(0)}K`;
+  document.getElementById("goalNote").textContent = `${pct.toFixed(1)}%`;
 }
 
 function renderPeriods() {
@@ -483,7 +742,8 @@ function renderAllocation() {
       }],
     },
     options: {
-      responsive: false,
+      responsive: true,
+      maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       cutout: "62%",
     },
@@ -608,6 +868,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("tickerFilter").addEventListener("change", applyTransactionFilters);
   document.getElementById("dateFilterFrom").addEventListener("change", applyTransactionFilters);
   document.getElementById("dateFilterTo").addEventListener("change", applyTransactionFilters);
+  document.getElementById("closeDrilldown").addEventListener("click", () => {
+    document.getElementById("monthDrilldown").hidden = true;
+  });
 
   initGis();
 });
