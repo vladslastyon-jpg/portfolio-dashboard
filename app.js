@@ -287,19 +287,42 @@ function computeAssetGrowthSeries(period) {
     });
   });
 
-  const dailyByDate = {};
-  (derived.dailyValue || []).forEach((d) => { dailyByDate[toISODateKey(d.date)] = d.value; });
-  let firstPortfolioValue = null;
-  for (const r of filtered) {
-    const key = toISODateKey(r[0]);
-    if (dailyByDate[key]) { firstPortfolioValue = dailyByDate[key]; break; }
-  }
-  const portfolio = filtered.map((r) => {
-    const v = dailyByDate[toISODateKey(r[0])];
-    return firstPortfolioValue && v ? (v / firstPortfolioValue - 1) * 100 : null;
-  });
+  const portfolio = computePortfolioReturnSeries(filtered.map((r) => parseSheetDate(r[0])));
 
   return { labels, series, portfolio, benchmark: series["VOO"] || [] };
+}
+
+/**
+ * Строит "чистую" траекторию доходности портфеля (в %), без искажения от
+ * довнесений — компаундим уже готовые помесячные Modified Dietz доходности
+ * из Portfolio_Monthly (derived.monthly), а не сырое отношение стоимости
+ * (которое росло бы и от новых покупок, а не только от роста цены).
+ * Значение "протягивается" по дням до следующего месяца, аналогично тому,
+ * как в самой таблице протягиваются цены между торговыми днями.
+ */
+function computePortfolioReturnSeries(dates) {
+  if (!dates.length) return [];
+  const monthly = derived.monthly || [];
+  let cum = 1;
+  const cumPoints = monthly.map((m) => {
+    if (m.profitPct !== null) cum *= (1 + m.profitPct);
+    return { date: parseSheetDate(m.date), cum };
+  });
+  if (!cumPoints.length) return dates.map(() => null);
+
+  function cumAt(targetDate) {
+    let result = null;
+    for (let i = cumPoints.length - 1; i >= 0; i--) {
+      if (cumPoints[i].date && cumPoints[i].date <= targetDate) { result = cumPoints[i].cum; break; }
+    }
+    return result;
+  }
+
+  const baseline = cumAt(dates[0]) ?? cumPoints[0].cum;
+  return dates.map((d) => {
+    const c = cumAt(d);
+    return c !== null && baseline ? (c / baseline - 1) * 100 : null;
+  });
 }
 
 function computeMonthGrid() {
@@ -591,6 +614,13 @@ function getCoreTickers() {
 function computeAllocation() {
   const groups = getTickerGroupMap();
   const rows = (derived.actualPortfolio?.rows || []).filter((r) => r.ticker !== "Cash");
+
+  // Порядок групп берём из портфель 500к (та же последовательность, что и во
+  // внутреннем кольце донат-чарта) — так внешнее кольцо (тикеры) останется
+  // угловым продолжением внутреннего (группы), без смешивания по стоимости.
+  const groupOrder = (derived.planActual?.groups || []).map((g) => g.group);
+  const orderIndex = (g) => { const i = groupOrder.indexOf(g); return i === -1 ? groupOrder.length : i; };
+
   const alloc = rows.map((r) => ({
     ticker: r.ticker,
     group: groups[r.ticker] || "Без группы",
@@ -599,7 +629,10 @@ function computeAllocation() {
     value: r.value,
     weight: r.weight,
   }));
-  alloc.sort((a, b) => b.value - a.value);
+  alloc.sort((a, b) => {
+    const gi = orderIndex(a.group) - orderIndex(b.group);
+    return gi !== 0 ? gi : b.value - a.value;
+  });
   derived.allocation = alloc;
 }
 
@@ -934,9 +967,8 @@ function renderPlanActual() {
   container.appendChild(overallRow);
   attachPlanTooltip(overallRow, "Портфель целиком", pa.currentTotal || 0, pa.targetTotal || 0);
 
-  const palette = ["#C39A48", "#55A776", "#C25C50", "#3E7B8C"];
   pa.groups.forEach((g, gi) => {
-    const color = palette[gi % palette.length];
+    const color = getGroupBaseColor(g.group);
     const bar = buildPlanBarHTML(g.factUSD || 0, g.planUSD || 0);
 
     const groupRow = document.createElement("div");
@@ -1090,7 +1122,7 @@ function getGroupBaseColor(groupName) {
   const g = (groupName || "").toUpperCase();
   if (g.includes("ГЛОБАЛЬН")) return "#C39A48";
   if (g.includes("АГРЕССИВН")) return "#55A776";
-  if (g.includes("ИНДИВИДУАЛ")) return "#C25C50";
+  if (g.includes("ИНДИВИДУАЛ")) return "#8B6FB3";
   if (g.includes("ЗАЩИТ")) return "#3E7B8C";
   return "#8A6F35";
 }

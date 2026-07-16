@@ -506,7 +506,7 @@ body {
 .donut-wrap--nested { width: 250px; height: 250px; }
 .donut-wrap canvas { width: 100% !important; height: 100% !important; }
 
-.is-underwater { color: #7FBF9E; }
+.is-underwater { background: rgba(85,167,118,0.22); }
 
 .filter-row { display: flex; gap: 8px; }
 .filter-row select, .filter-row input {
