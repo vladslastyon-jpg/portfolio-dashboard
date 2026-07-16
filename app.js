@@ -503,17 +503,44 @@ function computeTickerDetailTable() {
  * Структура: B2=текущий объём, D2=цель, G2=осталось добрать.
  * С 6-й строки: блоки — строка группы, затем строки тикеров, разделены пустой строкой.
  */
+function findLabelValue(rows, labelSubstring, maxScanRows) {
+  for (let r = 0; r < Math.min(maxScanRows, rows.length); r++) {
+    const row = rows[r] || [];
+    const idx = row.findIndex((c) => typeof c === "string" && c.toUpperCase().includes(labelSubstring.toUpperCase()));
+    if (idx === -1) continue;
+    // сначала ищем число в той же строке правее подписи
+    for (let col = idx; col < idx + 4 && col < row.length; col++) {
+      const n = numOrNull(row[col]);
+      if (n !== null) return n;
+    }
+    // если не нашли — пробуем строку ниже, в том же диапазоне колонок
+    const nextRow = rows[r + 1] || [];
+    for (let col = Math.max(0, idx - 1); col < idx + 4 && col < nextRow.length; col++) {
+      const n = numOrNull(nextRow[col]);
+      if (n !== null) return n;
+    }
+  }
+  return null;
+}
+
 function parsePortfolio500kSheet() {
   const rows = raw.portfolio500k || [];
   if (rows.length < 2) return { currentTotal: null, targetTotal: null, remaining: null, groups: [] };
 
-  const headerValueRow = rows[1] || [];
-  const currentTotal = numOrNull(headerValueRow[1]);
-  const targetTotal = numOrNull(headerValueRow[3]);
-  const remaining = numOrNull(headerValueRow[6]);
-
   let totalRowIdx = rows.findIndex((r) => r && typeof r[0] === "string" && r[0].toUpperCase().includes("ПОРТФЕЛЬ"));
   if (totalRowIdx === -1) totalRowIdx = 5;
+  const totalRow = rows[totalRowIdx] || [];
+
+  // Основной источник — сама строка "ПОРТФЕЛЬ — ИТОГО" (та же структура колонок,
+  // что и у групп/тикеров ниже, поэтому индексы гарантированно верные).
+  // Поиск по подписям ("Текущий объём" и т.д.) — запасной вариант, если верхний
+  // блок ячеек когда-нибудь появится в другом виде.
+  const currentTotal = numOrNull(totalRow[1]) ?? findLabelValue(rows, "ТЕКУЩ", 4);
+  const targetTotal = numOrNull(totalRow[3]) ?? findLabelValue(rows, "ЦЕЛЬ", 4);
+  const remainingFromHeader = findLabelValue(rows, "ОСТАЛ", 4);
+  const remaining = remainingFromHeader !== null
+    ? remainingFromHeader
+    : (currentTotal !== null && targetTotal !== null ? Math.max(0, targetTotal - currentTotal) : null);
 
   const groups = [];
   let i = totalRowIdx + 1;
