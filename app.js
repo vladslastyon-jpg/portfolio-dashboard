@@ -39,7 +39,6 @@ const derived = {
 
 let valueChart = null;
 let allocationChart = null;
-let cashflowChart = null;
 let assetsReturnChart = null;
 
 const CORE_TICKERS = ["VOO", "CSPX", "SOXX", "SMH", "GOOGL", "4GLD"];
@@ -53,7 +52,6 @@ let selectedAssetPeriod = "all";
 let selectedValuePeriod = "all";
 
 const PERIOD_DAYS_BACK = { "1d": 1, "1w": 7, "1m": 30, "1y": 365, "5y": 1825 };
-const PERIOD_YEARS_BACK = { "3y": 3, "5y": 5, "10y": 10 };
 
 /* -------------------------- helpers -------------------------- */
 
@@ -221,7 +219,6 @@ function computeAll() {
   computeCashflowMonthly();
   computeCashflowDaily();
   computeGoals();
-  computeAssetAnnualReturns();
   computeMonthGrid();
   computeDailyPortfolioValue();
 }
@@ -270,39 +267,39 @@ function sharesAsOfDate(ticker, date) {
   return sum;
 }
 
-function computeAssetAnnualReturns() {
+function computeAssetGrowthSeries(period) {
   const rows = raw.assetHistory || [];
-  if (!rows.length) { derived.assetAnnualReturns = { years: [], series: {}, portfolio: {}, benchmark: {} }; return; }
+  if (rows.length < 2) return { labels: [], series: {}, portfolio: [], benchmark: [] };
+  const header = rows[0];
+  const dataRows = rows.slice(1);
+  const filtered = filterByDaysPeriod(dataRows, period, (r) => r[0]);
+  if (!filtered.length) return { labels: [], series: {}, portfolio: [], benchmark: [] };
 
-  const allDates = rows.slice(1).map((r) => parseSheetDate(r[0])).filter(Boolean);
-  if (!allDates.length) { derived.assetAnnualReturns = { years: [], series: {}, portfolio: {}, benchmark: {} }; return; }
-  const minYear = Math.min(...allDates.map((d) => d.getFullYear()));
-  const maxYear = Math.max(...allDates.map((d) => d.getFullYear()));
-  const years = [];
-  for (let y = minYear; y <= maxYear; y++) years.push(y);
-
+  const labels = filtered.map((r) => formatDateLabel(r[0]));
   const series = {};
   CORE_TICKERS.forEach((ticker) => {
-    series[ticker] = years.map((y) => {
-      const start = priceOnOrAfter(ticker, new Date(y, 0, 1));
-      const end = priceOnOrBefore(ticker, new Date(y, 11, 31));
-      if (!start || !end) return null;
-      return end / start - 1;
+    const colIdx = header.indexOf(ticker);
+    if (colIdx === -1) { series[ticker] = filtered.map(() => null); return; }
+    const firstPrice = parseNum(filtered[0][colIdx]);
+    series[ticker] = filtered.map((r) => {
+      const p = parseNum(r[colIdx]);
+      return firstPrice > 0 && p ? (p / firstPrice - 1) * 100 : null;
     });
   });
 
-  const portfolio = years.map((y) => {
-    const monthsInYear = derived.monthly.filter((m) => {
-      const d = parseSheetDate(m.date);
-      return d && d.getFullYear() === y && m.profitPct !== null;
-    });
-    if (!monthsInYear.length) return null;
-    let compounded = 1;
-    monthsInYear.forEach((m) => { compounded *= (1 + m.profitPct); });
-    return compounded - 1;
+  const dailyByDate = {};
+  (derived.dailyValue || []).forEach((d) => { dailyByDate[toISODateKey(d.date)] = d.value; });
+  let firstPortfolioValue = null;
+  for (const r of filtered) {
+    const key = toISODateKey(r[0]);
+    if (dailyByDate[key]) { firstPortfolioValue = dailyByDate[key]; break; }
+  }
+  const portfolio = filtered.map((r) => {
+    const v = dailyByDate[toISODateKey(r[0])];
+    return firstPortfolioValue && v ? (v / firstPortfolioValue - 1) * 100 : null;
   });
 
-  derived.assetAnnualReturns = { years, series, portfolio, benchmark: series["VOO"] || [] };
+  return { labels, series, portfolio, benchmark: series["VOO"] || [] };
 }
 
 function computeMonthGrid() {
@@ -340,14 +337,16 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
     totalStartValue += startValue;
     if (returnPct !== null) weightedNumerator += startValue * returnPct;
 
-    rows.push({ ticker, priceStart, priceEnd, returnPct, qtyDelta });
+    const returnAbs = sharesStart * (priceEnd - priceStart);
+    rows.push({ ticker, returnPct, returnAbs, qtyDelta });
   });
 
   const portfolioReturn = monthEntry.profitPct !== null && monthEntry.profitPct !== undefined
     ? monthEntry.profitPct
     : (totalStartValue > 0 ? weightedNumerator / totalStartValue : null);
+  const portfolioReturnAbs = monthEntry.profitAbs !== null && monthEntry.profitAbs !== undefined ? monthEntry.profitAbs : null;
 
-  rows.push({ ticker: "Портфель целиком", priceStart: null, priceEnd: null, returnPct: portfolioReturn, qtyDelta: null, isTotal: true });
+  rows.push({ ticker: "Портфель целиком", returnPct: portfolioReturn, returnAbs: portfolioReturnAbs, qtyDelta: null, isTotal: true });
   return rows;
 }
 
@@ -489,6 +488,7 @@ function parseActualPortfolioSheet() {
 
 function numOrNull(v) {
   if (v === "" || v === undefined || v === null || v === "-" || v === "−") return null;
+  if (typeof v === "string" && !/[0-9]/.test(v)) return null;
   const n = parseNum(v);
   return isNaN(n) ? null : n;
 }
@@ -700,10 +700,8 @@ function parseSheetDate(v) {
 function renderAll() {
   renderKPI();
   renderGoal();
-  renderPeriods();
   renderValueChart();
   renderAllocation();
-  renderCashflowChart();
   renderTransactions();
   renderAssetCheckboxes();
   renderAssetsReturnChart();
@@ -738,41 +736,20 @@ function renderAssetCheckboxes() {
   });
 }
 
-function getAssetYearRange() {
-  const full = derived.assetAnnualReturns;
-  if (!full || !full.years.length) return [null, null];
-  const maxY = full.years[full.years.length - 1];
-  const yearsBack = PERIOD_YEARS_BACK[selectedAssetPeriod];
-  if (!yearsBack) return [full.years[0], maxY];
-  return [Math.max(maxY - (yearsBack - 1), full.years[0]), maxY];
-}
-
 function renderAssetsReturnChart() {
-  const full = derived.assetAnnualReturns;
-  if (!full || !full.years.length) return;
+  const data = computeAssetGrowthSeries(selectedAssetPeriod);
+  if (!data.labels.length) return;
   const ctx = document.getElementById("assetsReturnChart");
-
-  const [fromY, toY] = getAssetYearRange();
-  if (fromY === null) return;
-  const indices = full.years.map((y, i) => (y >= fromY && y <= toY ? i : -1)).filter((i) => i >= 0);
-  const years = indices.map((i) => full.years[i]);
-  const data = {
-    years,
-    portfolio: indices.map((i) => full.portfolio[i]),
-    series: {},
-    benchmark: indices.map((i) => (full.benchmark || [])[i]),
-  };
-  CORE_TICKERS.forEach((t) => { data.series[t] = indices.map((i) => full.series[t][i]); });
 
   const datasets = [];
   if (assetChartVisibility["Портфель"]) {
     datasets.push({
       label: "Портфель",
-      data: data.portfolio.map((v) => (v === null ? null : v * 100)),
+      data: data.portfolio,
       borderColor: ASSET_COLORS["Портфель"],
       backgroundColor: "transparent",
       borderWidth: 2.5,
-      pointRadius: 3,
+      pointRadius: 0,
       spanGaps: true,
     });
   }
@@ -780,17 +757,17 @@ function renderAssetsReturnChart() {
     if (!assetChartVisibility[ticker]) return;
     datasets.push({
       label: ticker,
-      data: data.series[ticker].map((v) => (v === null ? null : v * 100)),
+      data: data.series[ticker],
       borderColor: ASSET_COLORS[ticker],
       backgroundColor: "transparent",
       borderWidth: 1.75,
-      pointRadius: 2,
+      pointRadius: 0,
       spanGaps: true,
     });
   });
   datasets.push({
     label: "S&P 500 (ориентир, по VOO)",
-    data: data.benchmark.map((v) => (v === null ? null : v * 100)),
+    data: data.benchmark,
     borderColor: "#7C8798",
     backgroundColor: "transparent",
     borderWidth: 1.5,
@@ -802,7 +779,7 @@ function renderAssetsReturnChart() {
   if (assetsReturnChart) assetsReturnChart.destroy();
   assetsReturnChart = new Chart(ctx, {
     type: "line",
-    data: { labels: years, datasets },
+    data: { labels: data.labels, datasets },
     options: {
       ...chartBaseOptions(false),
       plugins: {
@@ -832,7 +809,8 @@ function renderMonthGrid() {
       const entry = derived.monthGrid[y][m];
       if (entry && entry.profitPct !== null) {
         const cls = signClass(entry.profitPct);
-        html += `<td class="month-cell ${cls}" data-year="${y}" data-month="${m}">${(entry.profitPct * 100).toFixed(1)}%</td>`;
+        const amt = entry.profitAbs !== null ? fmtMoney(entry.profitAbs) : "";
+        html += `<td class="month-cell ${cls}" data-year="${y}" data-month="${m}">${amt} (${(entry.profitPct * 100).toFixed(1)}%)</td>`;
       } else {
         html += `<td class="empty-cell">·</td>`;
       }
@@ -860,23 +838,10 @@ function showMonthDrilldown(year, monthIndex) {
   tbody.innerHTML = "";
   rows.forEach((r) => {
     const tr = document.createElement("tr");
-    if (r.isTotal) {
-      tr.style.fontWeight = "600";
-      tr.innerHTML = `<td>${r.ticker}</td>
-        <td class="num">—</td>
-        <td class="num">—</td>
-        <td class="num ${signClass(r.returnPct)}">${fmtPct(r.returnPct)}</td>
-        <td class="num">—</td>`;
-    } else {
-      const qtyNote = r.qtyDelta && Math.abs(r.qtyDelta) > 1e-9
-        ? `<span class="${r.qtyDelta > 0 ? "is-positive" : "is-negative"}">${r.qtyDelta > 0 ? "+" : ""}${r.qtyDelta.toFixed(2)}</span>`
-        : "—";
-      tr.innerHTML = `<td>${r.ticker}</td>
-        <td class="num">${fmtMoney(r.priceStart)}</td>
-        <td class="num">${fmtMoney(r.priceEnd)}</td>
-        <td class="num ${signClass(r.returnPct)}">${fmtPct(r.returnPct)}</td>
-        <td class="num">${qtyNote}</td>`;
-    }
+    if (r.isTotal) tr.style.fontWeight = "600";
+    tr.innerHTML = `<td>${r.ticker}</td>
+      <td class="num ${signClass(r.returnPct)}">${fmtPct(r.returnPct)}</td>
+      <td class="num ${signClass(r.returnAbs)}">${r.returnAbs === null ? "—" : fmtMoney(r.returnAbs)}</td>`;
     tbody.appendChild(tr);
   });
   document.getElementById("monthDrilldown").hidden = false;
@@ -888,7 +853,7 @@ function renderTickerDetailTable() {
   const tbody = document.getElementById("tickerDetailBody");
   tbody.innerHTML = "";
   if (!data || !data.rows.length) {
-    tbody.innerHTML = `<tr><td colspan="19" class="empty-row">Нет данных</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16" class="empty-row">Нет данных</td></tr>`;
     return;
   }
 
@@ -896,24 +861,59 @@ function renderTickerDetailTable() {
   const totalTr = document.createElement("tr");
   totalTr.className = "ticker-total-row";
   totalTr.innerHTML = `<td>ПОРТФЕЛЬ</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
-    <td class="num">${fmtMoney(t.value)}</td><td class="num">${(t.weight * 100).toFixed(1)}%</td>
-    <td class="num ${signClass(t.plPct)}">${fmtPct(t.plPct)}</td><td class="num ${signClass(t.plAbs)}">${fmtMoney(t.plAbs)}</td>
+    <td class="num">${fmtMoney(t.value)}</td>
     ${PERIOD_LABELS.map((l) => `<td class="num ${signClass(t.periods[l])}">${fmtPct(t.periods[l])}</td>`).join("")}`;
   tbody.appendChild(totalTr);
 
   data.rows.forEach((r) => {
     const tr = document.createElement("tr");
+    const underwater = r.price !== null && r.avgCost !== null && r.price < r.avgCost;
     tr.innerHTML = `<td>${r.ticker}</td>
       <td class="num">${r.shares}</td>
       <td class="num">${r.avgCost === null ? "—" : fmtMoney(r.avgCost)}</td>
-      <td class="num">${r.price === null ? "—" : fmtMoney(r.price)}</td>
+      <td class="num${underwater ? " is-underwater" : ""}">${r.price === null ? "—" : fmtMoney(r.price)}</td>
       <td class="num">${fmtMoney(r.value)}</td>
-      <td class="num">${(r.weight * 100).toFixed(1)}%</td>
-      <td class="num ${signClass(r.plPct)}">${fmtPct(r.plPct)}</td>
-      <td class="num ${signClass(r.plAbs)}">${fmtMoney(r.plAbs)}</td>
       ${PERIOD_LABELS.map((l) => `<td class="num ${signClass(r.periods[l])}">${fmtPct(r.periods[l])}</td>`).join("")}`;
     tbody.appendChild(tr);
   });
+}
+
+function buildPlanBarHTML(factUSD, planUSD) {
+  const hasPlan = planUSD && planUSD > 0;
+  const maxVal = Math.max(planUSD || 0, factUSD, 1) * 1.2;
+  const factPct = Math.min(100, (factUSD / maxVal) * 100);
+  const planPct = hasPlan ? Math.min(100, (planUSD / maxVal) * 100) : null;
+
+  let fillPct, gapHTML = "", overHTML = "";
+  if (!hasPlan) {
+    fillPct = factPct;
+  } else if (factUSD <= planUSD) {
+    fillPct = factPct;
+    gapHTML = `<div class="plan-bar-gap" style="left:${factPct}%; width:${planPct - factPct}%;"></div>`;
+  } else {
+    fillPct = planPct;
+    overHTML = `<div class="plan-bar-over" style="left:${planPct}%; width:${factPct - planPct}%;"></div>`;
+  }
+  const markerHTML = hasPlan ? `<div class="plan-bar-marker" style="left:${planPct}%;"></div>` : "";
+  return { fillPct, gapHTML, overHTML, markerHTML };
+}
+
+function attachPlanTooltip(el, title, factUSD, planUSD, extra) {
+  const tooltip = document.getElementById("planActualTooltip");
+  el.addEventListener("mouseenter", () => {
+    const hasPlan = planUSD && planUSD > 0;
+    const delta = hasPlan ? factUSD - planUSD : null;
+    tooltip.innerHTML = `<strong>${title}</strong><br>Факт: ${fmtMoney(factUSD)}<br>План: ${hasPlan ? fmtMoney(planUSD) : "нет плана"}` +
+      (hasPlan ? `<br>Δ: <span class="${delta >= 0 ? "is-positive" : "is-negative"}">${delta >= 0 ? "+" : ""}${fmtMoney(delta)}</span>` : "") +
+      (extra || "");
+    tooltip.hidden = false;
+  });
+  el.addEventListener("mousemove", (e) => {
+    const wrapRect = el.closest(".plan-actual-panel").getBoundingClientRect();
+    tooltip.style.left = (e.clientX - wrapRect.left + 14) + "px";
+    tooltip.style.top = (e.clientY - wrapRect.top + 10) + "px";
+  });
+  el.addEventListener("mouseleave", () => { tooltip.hidden = true; });
 }
 
 function renderPlanActual() {
@@ -922,47 +922,47 @@ function renderPlanActual() {
   if (!pa || !pa.groups.length) { container.innerHTML = ""; return; }
   container.innerHTML = "";
 
-  const totalPct = pa.targetTotal > 0 ? Math.min(100, (pa.currentTotal / pa.targetTotal) * 100) : 0;
+  const totalBar = buildPlanBarHTML(pa.currentTotal || 0, pa.targetTotal || 0);
   const overallRow = document.createElement("div");
   overallRow.className = "plan-row plan-row--total";
   overallRow.innerHTML = `
-    <div class="plan-row-header">
-      <span>Портфель целиком</span>
-      <span class="plan-row-figures">${fmtMoney(pa.currentTotal)} из ${fmtMoney(pa.targetTotal)} · ${totalPct.toFixed(0)}%</span>
-    </div>
-    <div class="plan-bar-track"><div class="plan-bar-fill" style="width:${totalPct}%; background:var(--accent-brass);"></div></div>`;
+    <div class="plan-row-header"><span>Портфель целиком</span></div>
+    <div class="plan-bar-track">
+      <div class="plan-bar-fill" style="width:${totalBar.fillPct}%; background:var(--accent-brass);"></div>
+      ${totalBar.gapHTML}${totalBar.overHTML}${totalBar.markerHTML}
+    </div>`;
   container.appendChild(overallRow);
+  attachPlanTooltip(overallRow, "Портфель целиком", pa.currentTotal || 0, pa.targetTotal || 0);
 
   const palette = ["#C39A48", "#55A776", "#C25C50", "#3E7B8C"];
   pa.groups.forEach((g, gi) => {
-    const hasPlan = g.planUSD && g.planUSD > 0;
-    const pct = hasPlan ? Math.min(150, (g.factUSD / g.planUSD) * 100) : (g.factUSD > 0 ? 150 : 0);
     const color = palette[gi % palette.length];
-    const overWarn = hasPlan && g.factUSD > g.planUSD;
+    const bar = buildPlanBarHTML(g.factUSD || 0, g.planUSD || 0);
 
     const groupRow = document.createElement("div");
     groupRow.className = "plan-row plan-row--group";
     groupRow.innerHTML = `
-      <div class="plan-row-header">
-        <span><span class="swatch" style="background:${color}"></span>${g.group}</span>
-        <span class="plan-row-figures">${fmtMoney(g.factUSD)} план ${hasPlan ? fmtMoney(g.planUSD) : "—"} · ${hasPlan ? pct.toFixed(0) + "%" : "нет плана"}</span>
-      </div>
-      <div class="plan-bar-track"><div class="plan-bar-fill ${overWarn ? "is-over" : ""}" style="width:${Math.min(100, pct)}%; background:${color};"></div></div>`;
+      <div class="plan-row-header"><span><span class="swatch" style="background:${color}"></span>${g.group}</span></div>
+      <div class="plan-bar-track">
+        <div class="plan-bar-fill" style="width:${bar.fillPct}%; background:${color};"></div>
+        ${bar.gapHTML}${bar.overHTML}${bar.markerHTML}
+      </div>`;
     container.appendChild(groupRow);
+    attachPlanTooltip(groupRow, g.group, g.factUSD || 0, g.planUSD || 0);
 
     g.tickers.forEach((t) => {
       if (!t.planUSD && !t.factUSD) return;
-      const tHasPlan = t.planUSD && t.planUSD > 0;
-      const tPct = tHasPlan ? Math.min(150, (t.factUSD / t.planUSD) * 100) : (t.factUSD > 0 ? 150 : 0);
+      const tBar = buildPlanBarHTML(t.factUSD || 0, t.planUSD || 0);
       const tRow = document.createElement("div");
       tRow.className = "plan-row plan-row--ticker";
       tRow.innerHTML = `
-        <div class="plan-row-header">
-          <span>${t.ticker}</span>
-          <span class="plan-row-figures">${fmtMoney(t.factUSD)} план ${tHasPlan ? fmtMoney(t.planUSD) : "—"} · ${tHasPlan ? tPct.toFixed(0) + "%" : "—"}</span>
-        </div>
-        <div class="plan-bar-track plan-bar-track--sm"><div class="plan-bar-fill" style="width:${Math.min(100, tPct)}%; background:${color};"></div></div>`;
+        <div class="plan-row-header"><span>${t.ticker}</span></div>
+        <div class="plan-bar-track plan-bar-track--sm">
+          <div class="plan-bar-fill" style="width:${tBar.fillPct}%; background:${color};"></div>
+          ${tBar.gapHTML}${tBar.overHTML}${tBar.markerHTML}
+        </div>`;
       container.appendChild(tRow);
+      attachPlanTooltip(tRow, t.ticker, t.factUSD || 0, t.planUSD || 0);
     });
   });
 }
@@ -995,20 +995,6 @@ function renderGoal() {
   document.getElementById("goalNote").textContent = `${pct.toFixed(1)}%`;
 }
 
-function renderPeriods() {
-  const tbody = document.getElementById("periodsBody");
-  tbody.innerHTML = "";
-  if (!derived.periods.length) {
-    tbody.innerHTML = '<tr><td colspan="2" class="empty-row">Нет данных</td></tr>';
-    return;
-  }
-  derived.periods.forEach((p) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${p.label}</td><td class="num ${signClass(p.value)}">${fmtPct(p.value)}</td>`;
-    tbody.appendChild(tr);
-  });
-}
-
 function filterByDaysPeriod(list, period, dateGetter) {
   if (!period || period === "all") return list;
   const daysBack = PERIOD_DAYS_BACK[period];
@@ -1019,30 +1005,103 @@ function filterByDaysPeriod(list, period, dateGetter) {
   return list.filter((item) => { const d = parseSheetDate(dateGetter(item)); return d && d >= cutoff; });
 }
 
+function toISODateKey(v) {
+  const d = parseSheetDate(v);
+  return d ? d.toISOString().slice(0, 10) : null;
+}
+
 function renderValueChart() {
   const ctx = document.getElementById("valueChart");
   const source = derived.dailyValue && derived.dailyValue.length ? derived.dailyValue : derived.monthly;
   const filtered = filterByDaysPeriod(source, selectedValuePeriod, (m) => m.date);
   const labels = filtered.map((m) => formatDateLabel(m.date));
-  const data = filtered.map((m) => convertCurrency(m.value, currentCurrency));
+  const valueData = filtered.map((m) => convertCurrency(m.value, currentCurrency));
+
+  const cashflowByDate = {};
+  (derived.cashflowDaily || []).forEach((c) => { cashflowByDate[c.date] = c.amount; });
+  const cashflowData = filtered.map((m) => {
+    const key = toISODateKey(m.date);
+    const amt = key && cashflowByDate[key] ? cashflowByDate[key] : 0;
+    return amt ? convertCurrency(amt, currentCurrency) : 0;
+  });
 
   if (valueChart) valueChart.destroy();
   valueChart = new Chart(ctx, {
-    type: "line",
     data: {
       labels,
-      datasets: [{
-        data,
-        borderColor: "#C39A48",
-        backgroundColor: "rgba(195,154,72,0.08)",
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: true,
-        tension: 0.15,
-      }],
+      datasets: [
+        {
+          type: "bar",
+          label: "Денежный поток",
+          data: cashflowData,
+          backgroundColor: cashflowData.map((v) => (v >= 0 ? "rgba(85,167,118,0.65)" : "rgba(194,92,80,0.65)")),
+          borderRadius: 2,
+          yAxisID: "yCashflow",
+          order: 2,
+          barPercentage: 0.6,
+        },
+        {
+          type: "line",
+          label: "Стоимость портфеля",
+          data: valueData,
+          borderColor: "#C39A48",
+          backgroundColor: "rgba(195,154,72,0.08)",
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.15,
+          yAxisID: "yValue",
+          order: 1,
+        },
+      ],
     },
-    options: chartBaseOptions(true),
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => item.dataset.label + ": " + fmtMoney(item.parsed.y),
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+          grid: { color: "#1E2530" },
+        },
+        yValue: {
+          position: "left",
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } },
+          grid: { color: "#1E2530" },
+        },
+        yCashflow: {
+          position: "right",
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 9 } },
+          grid: { display: false },
+        },
+      },
+    },
   });
+}
+
+function getGroupBaseColor(groupName) {
+  const g = (groupName || "").toUpperCase();
+  if (g.includes("ГЛОБАЛЬН")) return "#C39A48";
+  if (g.includes("АГРЕССИВН")) return "#55A776";
+  if (g.includes("ИНДИВИДУАЛ")) return "#C25C50";
+  if (g.includes("ЗАЩИТ")) return "#3E7B8C";
+  return "#8A6F35";
+}
+
+function lightenHex(hex, amount) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + Math.round(255 * amount);
+  let g = ((num >> 8) & 0xff) + Math.round(255 * amount);
+  let b = (num & 0xff) + Math.round(255 * amount);
+  r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
+  return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 function renderAllocation() {
@@ -1060,49 +1119,64 @@ function renderAllocation() {
     });
   }
 
+  const groupTotals = {};
+  const groupOrder = [];
+  derived.allocation.forEach((a) => {
+    if (!(a.group in groupTotals)) { groupTotals[a.group] = 0; groupOrder.push(a.group); }
+    groupTotals[a.group] += a.value;
+  });
+
+  const shadeCounters = {};
+  const tickerColors = derived.allocation.map((a) => {
+    const base = getGroupBaseColor(a.group);
+    const n = shadeCounters[a.group] || 0;
+    shadeCounters[a.group] = n + 1;
+    return lightenHex(base, n * 0.14);
+  });
+
   const ctx = document.getElementById("allocationChart");
-  const palette = ["#C39A48", "#55A776", "#7C8798", "#C25C50", "#8A6F35", "#3E7B8C", "#9A6BA0"];
   if (allocationChart) allocationChart.destroy();
   allocationChart = new Chart(ctx, {
     type: "doughnut",
     data: {
       labels: derived.allocation.map((a) => a.ticker),
-      datasets: [{
-        data: derived.allocation.map((a) => a.value),
-        backgroundColor: derived.allocation.map((_, i) => palette[i % palette.length]),
-        borderColor: "#141A24",
-        borderWidth: 2,
-      }],
+      datasets: [
+        {
+          label: "Активы",
+          data: derived.allocation.map((a) => a.value),
+          backgroundColor: tickerColors,
+          borderColor: "#141A24",
+          borderWidth: 2,
+        },
+        {
+          label: "Группы",
+          data: groupOrder.map((g) => groupTotals[g]),
+          backgroundColor: groupOrder.map((g) => getGroupBaseColor(g)),
+          borderColor: "#141A24",
+          borderWidth: 2,
+        },
+      ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      cutout: "62%",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              if (item.datasetIndex === 0) {
+                const a = derived.allocation[item.dataIndex];
+                return `${a.ticker}: ${fmtMoney(a.value)} (${(a.weight * 100).toFixed(1)}%)`;
+              }
+              const g = groupOrder[item.dataIndex];
+              return `${g}: ${fmtMoney(groupTotals[g])}`;
+            },
+          },
+        },
+      },
+      cutout: "35%",
     },
-  });
-}
-
-function renderCashflowChart() {
-  const ctx = document.getElementById("cashflowChart");
-  const source = derived.cashflowDaily && derived.cashflowDaily.length ? derived.cashflowDaily : derived.cashflowMonthly;
-  const dateGetter = derived.cashflowDaily && derived.cashflowDaily.length ? (c) => c.date : (c) => c.month + "-01";
-  const filtered = filterByDaysPeriod(source, selectedValuePeriod, dateGetter);
-  const labels = filtered.map((c) => c.date || c.month);
-  const data = filtered.map((c) => convertCurrency(c.amount, currentCurrency));
-
-  if (cashflowChart) cashflowChart.destroy();
-  cashflowChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        data,
-        backgroundColor: data.map((v) => (v >= 0 ? "rgba(85,167,118,0.7)" : "rgba(194,92,80,0.7)")),
-        borderRadius: 2,
-      }],
-    },
-    options: chartBaseOptions(false),
   });
 }
 
@@ -1213,7 +1287,6 @@ document.addEventListener("DOMContentLoaded", () => {
       selectedValuePeriod = btn.dataset.period;
       document.querySelectorAll("#valuePeriodButtons button").forEach((b) => b.classList.toggle("is-active", b === btn));
       renderValueChart();
-      renderCashflowChart();
     });
   });
 
