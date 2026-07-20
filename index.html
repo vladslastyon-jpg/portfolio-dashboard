@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=9" />
+<link rel="stylesheet" href="style.css?v=11" />
 </head>
 <body>
 
@@ -64,6 +64,11 @@
       <div class="kpi-label">Доходность</div>
       <div class="kpi-value" id="kpiProfitPct">—</div>
     </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Cash</div>
+      <div class="kpi-value" id="kpiCashDelta">—</div>
+    </div>
     <div class="kpi-rail" aria-hidden="true"><div class="kpi-rail-fill" id="kpiRailFill"></div></div>
   </section>
 
@@ -80,47 +85,6 @@
       <div><span class="figure-label">Сейчас</span><span class="figure-value" id="goalCurrent">—</span></div>
       <div><span class="figure-label">Осталось до $500K</span><span class="figure-value" id="goalRemaining">—</span></div>
     </div>
-  </section>
-
-  <!-- 3.2 PERFORMANCE (value line + cashflow bars combined in one chart) -->
-  <section class="panel chart-panel" aria-label="Динамика стоимости портфеля и денежные потоки">
-    <div class="panel-header">
-      <h2>Динамика стоимости портфеля</h2>
-      <div class="period-btn-row" id="valuePeriodButtons">
-        <button data-period="1d">1Д</button>
-        <button data-period="1w">1Н</button>
-        <button data-period="1m">1М</button>
-        <button data-period="1y">1Г</button>
-        <button data-period="5y">5Л</button>
-        <button data-period="all" class="is-active">Макс.</button>
-      </div>
-    </div>
-    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="valueChart"></canvas></div>
-  </section>
-
-  <!-- 3.4 ALLOCATION (nested donut: groups inner ring, tickers outer ring) -->
-  <section class="panel allocation-panel" aria-label="Структура портфеля">
-    <div class="panel-header">
-      <h2>Структура портфеля</h2>
-      <span class="panel-note">наведите на сегмент для деталей</span>
-    </div>
-    <div class="allocation-body">
-      <div class="donut-wrap donut-wrap--nested"><canvas id="allocationChart"></canvas></div>
-      <table class="ledger-table" id="allocationTable">
-        <thead><tr><th>Актив</th><th class="num">Доля</th><th class="num">Стоимость</th></tr></thead>
-        <tbody id="allocationBody"><tr><td colspan="3" class="empty-row">Нет данных</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- Plan vs actual, nested by group -->
-  <section class="panel plan-actual-panel" aria-label="План против факта по группам и активам">
-    <div class="panel-header">
-      <h2>План против факта</h2>
-      <span class="panel-note">наведите на полосу для цифр</span>
-    </div>
-    <div id="planActualBody"></div>
-    <div id="planActualTooltip" class="plan-tooltip" hidden></div>
   </section>
 
   <!-- Full ticker detail table (per-asset returns) -->
@@ -141,6 +105,28 @@
         <tbody id="tickerDetailBody"><tr><td colspan="16" class="empty-row">Нет данных</td></tr></tbody>
       </table>
     </div>
+  </section>
+
+  <!-- 3.4 ALLOCATION (nested donut: groups inner ring, tickers outer ring) -->
+  <section class="panel allocation-panel" aria-label="Структура портфеля">
+    <div class="panel-header">
+      <h2>Структура портфеля</h2>
+      <span class="panel-note">наведите на сегмент для деталей</span>
+    </div>
+    <div class="allocation-body">
+      <div class="donut-wrap donut-wrap--nested"><canvas id="allocationChart"></canvas></div>
+      <div class="alloc-legend" id="allocationBody"></div>
+    </div>
+  </section>
+
+  <!-- Plan vs actual, nested by group -->
+  <section class="panel plan-actual-panel" aria-label="План против факта по группам и активам">
+    <div class="panel-header">
+      <h2>План против факта</h2>
+      <span class="panel-note">наведите на полосу для цифр</span>
+    </div>
+    <div id="planActualBody"></div>
+    <div id="planActualTooltip" class="plan-tooltip" hidden></div>
   </section>
 
   <!-- 3.6 ASSET RETURN COMPARISON -->
@@ -184,6 +170,22 @@
     </div>
   </section>
 
+  <!-- 3.2 PERFORMANCE (value line + cashflow bars combined in one chart) -->
+  <section class="panel chart-panel" aria-label="Динамика стоимости портфеля и денежные потоки">
+    <div class="panel-header">
+      <h2>Динамика стоимости портфеля</h2>
+      <div class="period-btn-row" id="valuePeriodButtons">
+        <button data-period="1d">1Д</button>
+        <button data-period="1w">1Н</button>
+        <button data-period="1m">1М</button>
+        <button data-period="1y">1Г</button>
+        <button data-period="5y">5Л</button>
+        <button data-period="all" class="is-active">Макс.</button>
+      </div>
+    </div>
+    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="valueChart"></canvas></div>
+  </section>
+
   <!-- 3.8 TRANSACTIONS -->
   <section class="panel transactions-panel" aria-label="Детализация по сделкам">
     <div class="panel-header">
@@ -214,7 +216,7 @@
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="config.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

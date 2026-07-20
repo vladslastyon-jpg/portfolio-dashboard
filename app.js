@@ -300,14 +300,45 @@ function computeAssetGrowthSeries(period) {
  * Значение "протягивается" по дням до следующего месяца, аналогично тому,
  * как в самой таблице протягиваются цены между торговыми днями.
  */
+/**
+ * Ежедневная "чистая" доходность портфеля: для каждого дня берём изменение
+ * стоимости и вычитаем ровно ту сумму, что в этот день была довнесена/выведена
+ * (по Транзакции), — получаем прирост исключительно от движения цены.
+ * Компаундим по всем дням — получаем гладкий ежедневный индекс роста, без
+ * ступенек и без искажения от новых покупок (та же идея, что Modified Dietz
+ * в самой таблице, только на дневном шаге вместо месячного).
+ */
+function computeDailyCashflowMap() {
+  const map = {};
+  derived.txRows.forEach((t) => {
+    if (t.ticker === "Cash") return;
+    const key = toISODateKey(t.date);
+    if (!key) return;
+    map[key] = (map[key] || 0) + t.amount;
+  });
+  return map;
+}
+
+function computePortfolioGrowthIndexDaily() {
+  const dv = derived.dailyValue || [];
+  if (dv.length < 2) return [];
+  const flows = computeDailyCashflowMap();
+  let cum = 1;
+  const points = [{ date: parseSheetDate(dv[0].date), cum }];
+  for (let i = 1; i < dv.length; i++) {
+    const vPrev = dv[i - 1].value;
+    const vCur = dv[i].value;
+    const flow = flows[toISODateKey(dv[i].date)] || 0;
+    const ret = vPrev > 0 ? (vCur - vPrev - flow) / vPrev : 0;
+    cum *= (1 + ret);
+    points.push({ date: parseSheetDate(dv[i].date), cum });
+  }
+  return points;
+}
+
 function computePortfolioReturnSeries(dates) {
   if (!dates.length) return [];
-  const monthly = derived.monthly || [];
-  let cum = 1;
-  const cumPoints = monthly.map((m) => {
-    if (m.profitPct !== null) cum *= (1 + m.profitPct);
-    return { date: parseSheetDate(m.date), cum };
-  });
+  const cumPoints = derived.portfolioGrowthIndex || (derived.portfolioGrowthIndex = computePortfolioGrowthIndexDaily());
   if (!cumPoints.length) return dates.map(() => null);
 
   function cumAt(targetDate) {
@@ -612,26 +643,20 @@ function getCoreTickers() {
 }
 
 function computeAllocation() {
-  const groups = getTickerGroupMap();
-  const rows = (derived.actualPortfolio?.rows || []).filter((r) => r.ticker !== "Cash");
+  const groups = derived.planActual?.groups || [];
+  const totalValue = groups.reduce((s, g) => s + (g.factUSD || 0), 0);
 
-  // Порядок групп берём из портфель 500к (та же последовательность, что и во
-  // внутреннем кольце донат-чарта) — так внешнее кольцо (тикеры) останется
-  // угловым продолжением внутреннего (группы), без смешивания по стоимости.
-  const groupOrder = (derived.planActual?.groups || []).map((g) => g.group);
-  const orderIndex = (g) => { const i = groupOrder.indexOf(g); return i === -1 ? groupOrder.length : i; };
-
-  const alloc = rows.map((r) => ({
-    ticker: r.ticker,
-    group: groups[r.ticker] || "Без группы",
-    shares: r.shares,
-    price: r.price,
-    value: r.value,
-    weight: r.weight,
-  }));
-  alloc.sort((a, b) => {
-    const gi = orderIndex(a.group) - orderIndex(b.group);
-    return gi !== 0 ? gi : b.value - a.value;
+  const alloc = [];
+  groups.forEach((g) => {
+    g.tickers.forEach((t) => {
+      if (!t.factUSD) return;
+      alloc.push({
+        ticker: t.ticker,
+        group: g.group,
+        value: t.factUSD,
+        weight: totalValue > 0 ? t.factUSD / totalValue : 0,
+      });
+    });
   });
   derived.allocation = alloc;
 }
@@ -669,6 +694,7 @@ function computeCashflowDaily() {
  * O(n), без вложенного цикла по всем транзакциям на каждый день.
  */
 function computeDailyPortfolioValue() {
+  derived.portfolioGrowthIndex = null;
   const rows = raw.assetHistory || [];
   if (rows.length < 2) { derived.dailyValue = []; return; }
   const header = rows[0];
@@ -689,7 +715,8 @@ function computeDailyPortfolioValue() {
 
   const sharesState = {};
   const txIndex = {};
-  tickerCols.forEach(({ ticker }) => { sharesState[ticker] = 0; txIndex[ticker] = 0; });
+  const lastKnownPrice = {};
+  tickerCols.forEach(({ ticker }) => { sharesState[ticker] = 0; txIndex[ticker] = 0; lastKnownPrice[ticker] = 0; });
 
   const out = [];
   for (let i = 1; i < rows.length; i++) {
@@ -706,7 +733,13 @@ function computeDailyPortfolioValue() {
           txIndex[ticker]++;
         } else break;
       }
-      const price = parseNum(row[col]);
+      // Переносим последнюю известную цену вперёд, если на эту дату в
+      // Asset_History разрыв/0 (защита от "пилы" в графике доходности —
+      // без переноса момент отсутствующей котировки одного тикера обнулял
+      // его вклад в стоимость портфеля на этот день и создавал провал/скачок).
+      const cellPrice = parseNum(row[col]);
+      if (cellPrice) lastKnownPrice[ticker] = cellPrice;
+      const price = lastKnownPrice[ticker];
       if (Math.abs(sharesState[ticker]) > 1e-9 && price) total += sharesState[ticker] * price;
     });
     if (total > 0) out.push({ date: row[0], value: total });
@@ -949,6 +982,15 @@ function attachPlanTooltip(el, title, factUSD, planUSD, extra) {
   el.addEventListener("mouseleave", () => { tooltip.hidden = true; });
 }
 
+function deltaHTML(factUSD, planUSD) {
+  const hasPlan = planUSD && planUSD > 0;
+  if (!hasPlan) return `<span class="plan-row-delta">—</span>`;
+  const delta = factUSD - planUSD;
+  const cls = delta >= 0 ? "is-positive" : "is-negative";
+  const sign = delta >= 0 ? "+" : "";
+  return `<span class="plan-row-delta ${cls}">${sign}${fmtMoneyNoDecimals(delta)}</span>`;
+}
+
 function renderPlanActual() {
   const pa = derived.planActual;
   const container = document.getElementById("planActualBody");
@@ -960,9 +1002,12 @@ function renderPlanActual() {
   overallRow.className = "plan-row plan-row--total";
   overallRow.innerHTML = `
     <div class="plan-row-header"><span>Портфель целиком</span></div>
-    <div class="plan-bar-track">
-      <div class="plan-bar-fill" style="width:${totalBar.fillPct}%; background:var(--accent-brass);"></div>
-      ${totalBar.gapHTML}${totalBar.overHTML}${totalBar.markerHTML}
+    <div class="plan-row-main">
+      <div class="plan-bar-track">
+        <div class="plan-bar-fill" style="width:${totalBar.fillPct}%; background:var(--accent-brass);"></div>
+        ${totalBar.gapHTML}${totalBar.overHTML}${totalBar.markerHTML}
+      </div>
+      ${deltaHTML(pa.currentTotal || 0, pa.targetTotal || 0)}
     </div>`;
   container.appendChild(overallRow);
   attachPlanTooltip(overallRow, "Портфель целиком", pa.currentTotal || 0, pa.targetTotal || 0);
@@ -975,9 +1020,12 @@ function renderPlanActual() {
     groupRow.className = "plan-row plan-row--group";
     groupRow.innerHTML = `
       <div class="plan-row-header"><span><span class="swatch" style="background:${color}"></span>${g.group}</span></div>
-      <div class="plan-bar-track">
-        <div class="plan-bar-fill" style="width:${bar.fillPct}%; background:${color};"></div>
-        ${bar.gapHTML}${bar.overHTML}${bar.markerHTML}
+      <div class="plan-row-main">
+        <div class="plan-bar-track">
+          <div class="plan-bar-fill" style="width:${bar.fillPct}%; background:${color};"></div>
+          ${bar.gapHTML}${bar.overHTML}${bar.markerHTML}
+        </div>
+        ${deltaHTML(g.factUSD || 0, g.planUSD || 0)}
       </div>`;
     container.appendChild(groupRow);
     attachPlanTooltip(groupRow, g.group, g.factUSD || 0, g.planUSD || 0);
@@ -989,14 +1037,25 @@ function renderPlanActual() {
       tRow.className = "plan-row plan-row--ticker";
       tRow.innerHTML = `
         <div class="plan-row-header"><span>${t.ticker}</span></div>
-        <div class="plan-bar-track plan-bar-track--sm">
-          <div class="plan-bar-fill" style="width:${tBar.fillPct}%; background:${color};"></div>
-          ${tBar.gapHTML}${tBar.overHTML}${tBar.markerHTML}
+        <div class="plan-row-main">
+          <div class="plan-bar-track plan-bar-track--sm">
+            <div class="plan-bar-fill" style="width:${tBar.fillPct}%; background:${color};"></div>
+            ${tBar.gapHTML}${tBar.overHTML}${tBar.markerHTML}
+          </div>
+          ${deltaHTML(t.factUSD || 0, t.planUSD || 0)}
         </div>`;
       container.appendChild(tRow);
       attachPlanTooltip(tRow, t.ticker, t.factUSD || 0, t.planUSD || 0);
     });
   });
+}
+
+function getCashValue() {
+  const rows = derived.actualPortfolio?.rows || [];
+  const cashRow = rows.find((r) => r.ticker === "Cash");
+  if (cashRow) return cashRow.value || 0;
+  const allocCash = derived.allocation.find((a) => a.ticker === "Cash");
+  return allocCash ? allocCash.value : 0;
 }
 
 function renderKPI() {
@@ -1010,6 +1069,13 @@ function renderKPI() {
   const pctEl = document.getElementById("kpiProfitPct");
   pctEl.textContent = fmtPct(k.profitPct);
   pctEl.className = "kpi-value " + signClass(k.profitPct);
+
+  const cashValue = getCashValue();
+  const cashTargetReserve = k.marketValue * 0.05;
+  const cashDelta = cashValue - cashTargetReserve;
+  const cashEl = document.getElementById("kpiCashDelta");
+  cashEl.textContent = fmtMoney(cashDelta);
+  cashEl.className = "kpi-value " + signClass(cashDelta);
 
   const railPct = k.invested > 0 ? Math.min(100, Math.max(0, (k.marketValue / k.invested) * 50)) : 0;
   document.getElementById("kpiRailFill").style.width = railPct + "%";
@@ -1066,11 +1132,13 @@ function renderValueChart() {
           type: "bar",
           label: "Денежный поток",
           data: cashflowData,
-          backgroundColor: cashflowData.map((v) => (v >= 0 ? "rgba(85,167,118,0.65)" : "rgba(194,92,80,0.65)")),
-          borderRadius: 2,
+          backgroundColor: cashflowData.map((v) => (v > 0 ? "#55A776" : v < 0 ? "#C25C50" : "transparent")),
+          borderRadius: 1,
           yAxisID: "yCashflow",
           order: 2,
-          barPercentage: 0.6,
+          barPercentage: 0.95,
+          categoryPercentage: 1.0,
+          minBarLength: 3,
         },
         {
           type: "line",
@@ -1111,7 +1179,10 @@ function renderValueChart() {
         yCashflow: {
           position: "right",
           ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 9 } },
-          grid: { display: false },
+          grid: {
+            color: (ctx) => (ctx.tick.value === 0 ? "#7C8798" : "transparent"),
+            lineWidth: (ctx) => (ctx.tick.value === 0 ? 1.5 : 0),
+          },
         },
       },
     },
@@ -1120,11 +1191,11 @@ function renderValueChart() {
 
 function getGroupBaseColor(groupName) {
   const g = (groupName || "").toUpperCase();
-  if (g.includes("ГЛОБАЛЬН")) return "#C39A48";
-  if (g.includes("АГРЕССИВН")) return "#55A776";
-  if (g.includes("ИНДИВИДУАЛ")) return "#8B6FB3";
-  if (g.includes("ЗАЩИТ")) return "#3E7B8C";
-  return "#8A6F35";
+  if (g.includes("ГЛОБАЛЬН")) return "#4A2E6D";   // тёмно-фиолетовый — S&P 500
+  if (g.includes("АГРЕССИВН")) return "#1E5631";  // тёмно-зелёный — Сателлиты
+  if (g.includes("ИНДИВИДУАЛ")) return "#1B3A6B"; // тёмно-синий — Индивидуальные акции
+  if (g.includes("ЗАЩИТ")) return "#7A6417";      // тёмно-жёлтый — Защита/Ликвидность
+  return "#5A5240";
 }
 
 function lightenHex(hex, amount) {
@@ -1136,20 +1207,17 @@ function lightenHex(hex, amount) {
   return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+function fmtMoneyNoDecimals(value) {
+  if (value === null || value === undefined || isNaN(value)) return "—";
+  const converted = convertCurrency(value, currentCurrency);
+  const symbol = currentCurrency === "EUR" ? "€" : "$";
+  const sign = converted < 0 ? "-" : "";
+  return `${sign}${symbol}${Math.round(Math.abs(converted)).toLocaleString("en-US")}`;
+}
+
 function renderAllocation() {
-  const tbody = document.getElementById("allocationBody");
-  tbody.innerHTML = "";
-  if (!derived.allocation.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="empty-row">Нет данных</td></tr>';
-  } else {
-    derived.allocation.forEach((a) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${a.ticker} <span style="color:var(--text-faint)">· ${a.group}</span></td>
-        <td class="num">${(a.weight * 100).toFixed(1)}%</td>
-        <td class="num">${fmtMoney(a.value)}</td>`;
-      tbody.appendChild(tr);
-    });
-  }
+  const legend = document.getElementById("allocationBody");
+  legend.innerHTML = "";
 
   const groupTotals = {};
   const groupOrder = [];
@@ -1157,12 +1225,41 @@ function renderAllocation() {
     if (!(a.group in groupTotals)) { groupTotals[a.group] = 0; groupOrder.push(a.group); }
     groupTotals[a.group] += a.value;
   });
+  const grandTotal = groupOrder.reduce((s, g) => s + groupTotals[g], 0);
+
+  if (!derived.allocation.length) {
+    legend.innerHTML = '<div class="empty-row">Нет данных</div>';
+  } else {
+    groupOrder.forEach((g) => {
+      const groupColor = getGroupBaseColor(g);
+      const groupWrap = document.createElement("div");
+      groupWrap.className = "alloc-legend-group";
+      const groupWeight = grandTotal > 0 ? (groupTotals[g] / grandTotal) * 100 : 0;
+      groupWrap.innerHTML = `
+        <div class="alloc-legend-group-row">
+          <span class="alloc-name"><span class="swatch" style="background:${groupColor}"></span><span class="label-text">${g}</span></span>
+          <span class="alloc-figures">${Math.round(groupWeight)}% · ${fmtMoneyNoDecimals(groupTotals[g])}</span>
+        </div>`;
+      let shadeIdx = 0;
+      derived.allocation.filter((a) => a.group === g).forEach((a) => {
+        shadeIdx++;
+        const tickerColor = lightenHex(groupColor, shadeIdx * 0.14);
+        const row = document.createElement("div");
+        row.className = "alloc-legend-ticker-row";
+        row.innerHTML = `
+          <span class="alloc-name"><span class="swatch" style="background:${tickerColor}"></span><span class="label-text">${a.ticker}</span></span>
+          <span class="alloc-figures">${Math.round(a.weight * 100)}% · ${fmtMoneyNoDecimals(a.value)}</span>`;
+        groupWrap.appendChild(row);
+      });
+      legend.appendChild(groupWrap);
+    });
+  }
 
   const shadeCounters = {};
   const tickerColors = derived.allocation.map((a) => {
     const base = getGroupBaseColor(a.group);
-    const n = shadeCounters[a.group] || 0;
-    shadeCounters[a.group] = n + 1;
+    const n = (shadeCounters[a.group] || 0) + 1;
+    shadeCounters[a.group] = n;
     return lightenHex(base, n * 0.14);
   });
 
@@ -1171,19 +1268,21 @@ function renderAllocation() {
   allocationChart = new Chart(ctx, {
     type: "doughnut",
     data: {
+      // порядок датасетов = порядок колец от центра наружу:
+      // группы — внутреннее кольцо, тикеры — внешнее
       labels: derived.allocation.map((a) => a.ticker),
       datasets: [
-        {
-          label: "Активы",
-          data: derived.allocation.map((a) => a.value),
-          backgroundColor: tickerColors,
-          borderColor: "#141A24",
-          borderWidth: 2,
-        },
         {
           label: "Группы",
           data: groupOrder.map((g) => groupTotals[g]),
           backgroundColor: groupOrder.map((g) => getGroupBaseColor(g)),
+          borderColor: "#141A24",
+          borderWidth: 2,
+        },
+        {
+          label: "Активы",
+          data: derived.allocation.map((a) => a.value),
+          backgroundColor: tickerColors,
           borderColor: "#141A24",
           borderWidth: 2,
         },
@@ -1197,12 +1296,12 @@ function renderAllocation() {
         tooltip: {
           callbacks: {
             label: (item) => {
-              if (item.datasetIndex === 0) {
+              if (item.datasetIndex === 1) {
                 const a = derived.allocation[item.dataIndex];
-                return `${a.ticker}: ${fmtMoney(a.value)} (${(a.weight * 100).toFixed(1)}%)`;
+                return `${a.ticker}: ${fmtMoneyNoDecimals(a.value)} (${Math.round(a.weight * 100)}%)`;
               }
               const g = groupOrder[item.dataIndex];
-              return `${g}: ${fmtMoney(groupTotals[g])}`;
+              return `${g}: ${fmtMoneyNoDecimals(groupTotals[g])}`;
             },
           },
         },
