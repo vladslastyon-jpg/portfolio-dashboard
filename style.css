@@ -193,6 +193,37 @@ body {
 .signed-out-hint p { color: var(--text-primary); font-size: 14px; line-height: 1.6; }
 .signed-out-hint .hint-small { color: var(--text-muted); font-size: 12.5px; }
 
+/* ---------------- Tabs ---------------- */
+.tab-nav {
+  display: flex;
+  gap: 4px;
+  padding: 14px 28px 0;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.tab-btn {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-bottom: none;
+  color: var(--text-muted);
+  padding: 10px 20px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer;
+}
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.is-active {
+  background: var(--surface);
+  color: var(--accent-brass);
+  font-weight: 600;
+  border-color: var(--hairline);
+}
+.tab-panel { display: none; }
+.tab-panel.is-active { display: grid; }
+
 /* ---------------- Layout grid ---------------- */
 .app-grid {
   display: grid;
@@ -355,6 +386,41 @@ body {
 
 .plan-actual-panel { grid-column: span 6; }
 .ticker-detail-panel { grid-column: span 12; }
+
+/* ---------------- Pension section ---------------- */
+.pension-inputs-panel { grid-column: span 12; }
+.pension-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.pension-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pension-input input {
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+.pension-input input:focus { outline: none; border-color: var(--accent-brass-dim); }
+
+.pension-kpi-panel {
+  grid-column: span 12;
+  display: flex;
+  align-items: stretch;
+}
+.pension-kpi-panel .kpi-cell { flex: 1; padding: 4px 20px; }
+.pension-kpi-panel .kpi-cell:first-child { padding-left: 4px; }
+
+.pension-goal-panel { grid-column: span 12; }
+.pension-chart-panel { grid-column: span 12; }
+.pension-table-panel { grid-column: span 12; }
 
 .period-btn-row {
   display: flex;

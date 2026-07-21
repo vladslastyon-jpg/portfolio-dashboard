@@ -40,6 +40,7 @@ const derived = {
 let valueChart = null;
 let allocationChart = null;
 let assetsReturnChart = null;
+let pensionChart = null;
 
 const CORE_TICKERS = ["VOO", "CSPX", "SOXX", "SMH", "GOOGL", "4GLD"];
 const ASSET_COLORS = {
@@ -221,6 +222,143 @@ function computeAll() {
   computeGoals();
   computeMonthGrid();
   computeDailyPortfolioValue();
+}
+
+/* -------------------------- Pension calculator (раздел "Пенсия") -------------------------- */
+
+function getPensionInputs() {
+  return {
+    age: parseNum(document.getElementById("pAge").value) || 35,
+    retireAge: parseNum(document.getElementById("pRetireAge").value) || 62,
+    monthlyContribution: parseNum(document.getElementById("pMonthlyContribution").value) || 0,
+    returnRate: (parseNum(document.getElementById("pReturnRate").value) || 0) / 100,
+    withdrawRate: (parseNum(document.getElementById("pWithdrawRate").value) || 4) / 100,
+    targetIncome: parseNum(document.getElementById("pTargetIncome").value) || 0,
+  };
+}
+
+/**
+ * Год за годом наращивает капитал: текущий портфель (KPI "Рыночная стоимость")
+ * растёт на returnRate в год и получает ежегодные довнесения
+ * (monthlyContribution × 12), довнесение считается в конце каждого года.
+ */
+function computePensionProjection() {
+  const inputs = getPensionInputs();
+  const current = derived.kpi ? derived.kpi.marketValue : 0;
+  const years = Math.max(0, inputs.retireAge - inputs.age);
+  const annualContribution = inputs.monthlyContribution * 12;
+
+  const rows = [];
+  let capital = current;
+  const startYear = new Date().getFullYear();
+  for (let y = 1; y <= years; y++) {
+    capital = capital * (1 + inputs.returnRate) + annualContribution;
+    rows.push({
+      year: startYear + y,
+      age: inputs.age + y,
+      contribution: annualContribution,
+      capital,
+      monthlyIncome: (capital * inputs.withdrawRate) / 12,
+    });
+  }
+
+  const projected = rows.length ? rows[rows.length - 1].capital : current;
+  const requiredCapital = inputs.withdrawRate > 0 ? inputs.targetIncome / inputs.withdrawRate : null;
+  const projectedMonthlyIncome = (projected * inputs.withdrawRate) / 12;
+
+  return { inputs, current, years, rows, projected, requiredCapital, projectedMonthlyIncome };
+}
+
+function renderPension() {
+  if (!derived.kpi) return;
+  const p = computePensionProjection();
+
+  document.getElementById("pKpiCurrent").textContent = fmtMoney(p.current);
+  document.getElementById("pKpiYears").textContent = p.years;
+  document.getElementById("pKpiProjected").textContent = fmtMoney(p.projected);
+  document.getElementById("pKpiRequired").textContent = p.requiredCapital === null ? "—" : fmtMoney(p.requiredCapital);
+  const incomeEl = document.getElementById("pKpiIncome");
+  incomeEl.textContent = fmtMoney(p.projectedMonthlyIncome);
+  incomeEl.className = "kpi-value " + signClass(p.requiredCapital !== null ? p.projected - p.requiredCapital : null);
+
+  if (p.requiredCapital !== null && p.requiredCapital > 0) {
+    const pct = Math.min(100, (p.projected / p.requiredCapital) * 100);
+    document.getElementById("pGoalTrackFill").style.width = pct + "%";
+    document.getElementById("pGoalNote").textContent = pct.toFixed(1) + "%";
+    const gap = Math.max(0, p.requiredCapital - p.projected);
+    document.getElementById("pGoalGap").textContent = gap > 0 ? fmtMoney(gap) : "цель достигнута";
+    const incomeGap = p.projectedMonthlyIncome - p.inputs.targetIncome / 12;
+    const incomeGapEl = document.getElementById("pIncomeGap");
+    incomeGapEl.textContent = (incomeGap >= 0 ? "+" : "") + fmtMoney(incomeGap);
+    incomeGapEl.className = "figure-value " + signClass(incomeGap);
+  } else {
+    document.getElementById("pGoalTrackFill").style.width = "0%";
+    document.getElementById("pGoalNote").textContent = "—";
+    document.getElementById("pGoalGap").textContent = "—";
+    document.getElementById("pIncomeGap").textContent = "—";
+  }
+
+  const tbody = document.getElementById("pensionTableBody");
+  tbody.innerHTML = "";
+  if (!p.rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">Возраст выхода на пенсию уже достигнут или меньше текущего</td></tr>';
+  } else {
+    p.rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${r.year}</td><td class="num">${r.age}</td>
+        <td class="num">${fmtMoney(r.contribution)}</td>
+        <td class="num">${fmtMoney(r.capital)}</td>
+        <td class="num">${fmtMoney(r.monthlyIncome)}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  const ctx = document.getElementById("pensionChart");
+  const labels = ["сейчас", ...p.rows.map((r) => String(r.year))];
+  const dataPoints = [p.current, ...p.rows.map((r) => r.capital)];
+  if (pensionChart) pensionChart.destroy();
+  pensionChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Капитал",
+          data: dataPoints.map((v) => convertCurrency(v, currentCurrency)),
+          borderColor: "#C39A48",
+          backgroundColor: "rgba(195,154,72,0.10)",
+          borderWidth: 2.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.1,
+        },
+        ...(p.requiredCapital !== null
+          ? [{
+              label: "Нужный капитал",
+              data: dataPoints.map(() => convertCurrency(p.requiredCapital, currentCurrency)),
+              borderColor: "#7C8798",
+              backgroundColor: "transparent",
+              borderWidth: 1.5,
+              borderDash: [5, 4],
+              pointRadius: 0,
+            }]
+          : []),
+      ],
+    },
+    options: {
+      ...chartBaseOptions(false),
+      plugins: {
+        legend: { display: true, position: "top", labels: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, boxWidth: 10 } },
+        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${fmtMoney(convertCurrency(dataPoints[item.dataIndex], "USD"))}` } },
+      },
+    },
+  });
+}
+
+function wirePensionInputs() {
+  ["pAge", "pRetireAge", "pMonthlyContribution", "pReturnRate", "pWithdrawRate", "pTargetIncome"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", () => { if (derived.kpi) renderPension(); });
+  });
 }
 
 /* ---- helpers used by drill-down and annual comparison ---- */
@@ -761,11 +899,13 @@ function computeDailyPortfolioValue() {
   tickerCols.forEach(({ ticker }) => { sharesState[ticker] = 0; txIndex[ticker] = 0; lastKnownPrice[ticker] = 0; });
 
   const out = [];
+  const detail = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const date = parseSheetDate(row[0]);
     if (!date) continue;
     let total = 0;
+    const byTicker = {};
     tickerCols.forEach(({ ticker, col }) => {
       const txs = txByTicker[ticker] || [];
       while (txIndex[ticker] < txs.length) {
@@ -782,7 +922,10 @@ function computeDailyPortfolioValue() {
       const cellPrice = parseNum(row[col]);
       if (cellPrice) lastKnownPrice[ticker] = cellPrice;
       const price = lastKnownPrice[ticker];
-      if (Math.abs(sharesState[ticker]) > 1e-9 && price) total += sharesState[ticker] * price;
+      const shares = sharesState[ticker];
+      const value = Math.abs(shares) > 1e-9 && price ? shares * price : 0;
+      byTicker[ticker] = { shares, price, value };
+      total += value;
     });
     if (total > 0) out.push({ date: row[0], value: total });
   }
@@ -816,6 +959,7 @@ function renderAll() {
   renderMonthGrid();
   renderTickerDetailTable();
   renderPlanActual();
+  renderPension();
 }
 
 function renderAssetCheckboxes() {
@@ -1470,6 +1614,18 @@ document.addEventListener("DOMContentLoaded", () => {
       renderAssetsReturnChart();
     });
   });
+
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.hidden = panel.dataset.tab !== tab;
+      });
+      if (tab === "pension" && derived.kpi) renderPension();
+    });
+  });
+  wirePensionInputs();
 
   initGis();
 });

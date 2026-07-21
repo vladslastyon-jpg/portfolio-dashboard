@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=11" />
+<link rel="stylesheet" href="style.css?v=12" />
 </head>
 <body>
 
@@ -41,7 +41,14 @@
 
 <div id="statusBar" class="status-bar" hidden></div>
 
-<main id="app" class="app-grid" hidden>
+<main id="app" hidden>
+
+<nav class="tab-nav">
+  <button class="tab-btn is-active" data-tab="portfolio">Портфель</button>
+  <button class="tab-btn" data-tab="pension">Пенсия</button>
+</nav>
+
+<div id="tabPortfolio" class="tab-panel app-grid is-active" data-tab="portfolio">
 
   <!-- 3.1 KPI STRIP -->
   <section class="panel kpi-strip" aria-label="Обзор портфеля">
@@ -206,6 +213,108 @@
     </div>
   </section>
 
+</div>
+
+<div id="tabPension" class="tab-panel app-grid" data-tab="pension" hidden>
+
+  <section class="panel pension-inputs-panel" aria-label="Параметры расчёта пенсии">
+    <div class="panel-header">
+      <h2>Параметры расчёта</h2>
+      <span class="panel-note">меняй значения — всё пересчитается сразу</span>
+    </div>
+    <div class="pension-inputs-grid">
+      <label class="pension-input">
+        <span class="figure-label">Текущий возраст</span>
+        <input type="number" id="pAge" value="35" min="18" max="80" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Возраст выхода на пенсию</span>
+        <input type="number" id="pRetireAge" value="62" min="40" max="80" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Ежемесячное довнесение, $</span>
+        <input type="number" id="pMonthlyContribution" value="1500" min="0" step="50" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Ожидаемая реальная доходность, %/год</span>
+        <input type="number" id="pReturnRate" value="7" min="0" max="20" step="0.5" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Ставка вывода на пенсии, %/год</span>
+        <input type="number" id="pWithdrawRate" value="4" min="1" max="10" step="0.25" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Целевой пассивный доход, $/год</span>
+        <input type="number" id="pTargetIncome" value="40000" min="0" step="1000" />
+      </label>
+    </div>
+  </section>
+
+  <section class="panel pension-kpi-panel" aria-label="Итоги расчёта пенсии">
+    <div class="kpi-cell">
+      <div class="kpi-label">Текущий портфель</div>
+      <div class="kpi-value" id="pKpiCurrent">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Лет до пенсии</div>
+      <div class="kpi-value" id="pKpiYears">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прогноз капитала к пенсии</div>
+      <div class="kpi-value" id="pKpiProjected">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Нужный капитал</div>
+      <div class="kpi-value" id="pKpiRequired">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прогноз дохода/мес</div>
+      <div class="kpi-value" id="pKpiIncome">—</div>
+    </div>
+  </section>
+
+  <section class="panel pension-goal-panel" aria-label="Прогресс к целевому капиталу пенсии">
+    <div class="panel-header">
+      <h2>Прогресс к нужному капиталу</h2>
+      <span class="panel-note" id="pGoalNote">—</span>
+    </div>
+    <div class="goal-track">
+      <div class="goal-track-fill" id="pGoalTrackFill"></div>
+    </div>
+    <div class="goal-figures">
+      <div><span class="figure-label">Не хватает</span><span class="figure-value" id="pGoalGap">—</span></div>
+      <div><span class="figure-label">Разница дохода vs цели, $/мес</span><span class="figure-value" id="pIncomeGap">—</span></div>
+    </div>
+  </section>
+
+  <section class="panel pension-chart-panel" aria-label="Траектория роста капитала до пенсии">
+    <div class="panel-header">
+      <h2>Траектория роста капитала до пенсии</h2>
+      <span class="panel-note">с довнесениями, по годам</span>
+    </div>
+    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="pensionChart"></canvas></div>
+  </section>
+
+  <section class="panel pension-table-panel" aria-label="Таблица по годам">
+    <div class="panel-header">
+      <h2>По годам</h2>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="pensionTable">
+        <thead>
+          <tr><th>Год</th><th class="num">Возраст</th><th class="num">Взносы за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес при 4%</th></tr>
+        </thead>
+        <tbody id="pensionTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
 </main>
 
 <div id="signedOutHint" class="signed-out-hint">
@@ -216,7 +325,7 @@
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="config.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="config.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
