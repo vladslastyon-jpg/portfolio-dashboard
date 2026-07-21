@@ -309,9 +309,15 @@ function computeAssetGrowthSeries(period) {
  * в самой таблице, только на дневном шаге вместо месячного).
  */
 function computeDailyCashflowMap() {
+  const tracked = derived.trackedTickers || null; // тикеры, реально отслеживаемые в Asset_History
   const map = {};
   derived.txRows.forEach((t) => {
     if (t.ticker === "Cash") return;
+    // Сделки по тикерам, которых нет в Asset_History (старые отдельные акции,
+    // распроданные до перехода на текущую ETF-стратегию), не должны искажать
+    // дневной индекс доходности "основного" портфеля — у нас просто нет для
+    // них исторических котировок, чтобы корректно посчитать их вклад.
+    if (tracked && !tracked.has(t.ticker)) return;
     const key = toISODateKey(t.date);
     if (!key) return;
     map[key] = (map[key] || 0) + t.amount;
@@ -696,11 +702,12 @@ function computeCashflowDaily() {
 function computeDailyPortfolioValue() {
   derived.portfolioGrowthIndex = null;
   const rows = raw.assetHistory || [];
-  if (rows.length < 2) { derived.dailyValue = []; return; }
+  if (rows.length < 2) { derived.dailyValue = []; derived.trackedTickers = new Set(); return; }
   const header = rows[0];
   const tickerCols = header
     .map((name, col) => ({ ticker: name, col }))
     .filter((tc) => tc.col > 0 && tc.ticker);
+  derived.trackedTickers = new Set(tickerCols.map((tc) => tc.ticker));
 
   const txByTicker = {};
   derived.txRows.forEach((t) => {
