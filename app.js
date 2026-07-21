@@ -342,6 +342,41 @@ function computePortfolioGrowthIndexDaily() {
   return points;
 }
 
+/**
+ * ВРЕМЕННАЯ ОТЛАДКА (можно удалить после диагностики "обвала" на графике
+ * "Доходность по активам"). Вызвать в консоли браузера на живом сайте:
+ *   window.debugPortfolioReturns("2024-06-20", "2024-07-15")
+ * Выведет таблицу по дням: стоимость портфеля (value), денежный поток (flow)
+ * и посчитанную дневную доходность (ret, в %) — чтобы найти точный день и
+ * точные цифры, которые ломают накопительный индекс.
+ */
+window.debugPortfolioReturns = function (fromISO, toISO) {
+  const dv = derived.dailyValue || [];
+  const flows = computeDailyCashflowMap();
+  const from = fromISO ? new Date(fromISO) : null;
+  const to = toISO ? new Date(toISO) : null;
+  const rows = [];
+  for (let i = 1; i < dv.length; i++) {
+    const d = parseSheetDate(dv[i].date);
+    if (from && d < from) continue;
+    if (to && d > to) continue;
+    const vPrev = dv[i - 1].value;
+    const vCur = dv[i].value;
+    const key = toISODateKey(dv[i].date);
+    const flow = flows[key] || 0;
+    const ret = vPrev > 0 ? (vCur - vPrev - flow) / vPrev : 0;
+    rows.push({
+      date: key,
+      vPrev: Math.round(vPrev),
+      vCur: Math.round(vCur),
+      flow: Math.round(flow),
+      "ret,%": (ret * 100).toFixed(1),
+    });
+  }
+  console.table(rows);
+  return rows;
+};
+
 function computePortfolioReturnSeries(dates) {
   if (!dates.length) return [];
   const cumPoints = derived.portfolioGrowthIndex || (derived.portfolioGrowthIndex = computePortfolioGrowthIndexDaily());
