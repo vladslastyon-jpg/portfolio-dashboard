@@ -227,11 +227,17 @@ function computeAll() {
 /* -------------------------- Pension calculator (раздел "Пенсия") -------------------------- */
 
 function getPensionInputs() {
+  const nominalReturn = (parseNum(document.getElementById("pNominalReturn").value) || 0) / 100;
+  const inflation = (parseNum(document.getElementById("pInflation").value) || 0) / 100;
+  const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
   return {
     age: parseNum(document.getElementById("pAge").value) || 35,
     retireAge: parseNum(document.getElementById("pRetireAge").value) || 62,
+    endAge: parseNum(document.getElementById("pEndAge").value) || 100,
     monthlyContribution: parseNum(document.getElementById("pMonthlyContribution").value) || 0,
-    returnRate: (parseNum(document.getElementById("pReturnRate").value) || 0) / 100,
+    nominalReturn,
+    inflation,
+    returnRate: realReturn, // реальная доходность (уже без инфляции), используется во всех расчётах ниже
     withdrawRate: (parseNum(document.getElementById("pWithdrawRate").value) || 4) / 100,
     targetIncome: parseNum(document.getElementById("pTargetIncome").value) || 0,
   };
@@ -239,34 +245,65 @@ function getPensionInputs() {
 
 /**
  * Год за годом наращивает капитал: текущий портфель (KPI "Рыночная стоимость")
- * растёт на returnRate в год и получает ежегодные довнесения
- * (monthlyContribution × 12), довнесение считается в конце каждого года.
+ * растёт на реальную доходность (номинальная минус инфляция) в год и получает
+ * ежегодные довнесения (monthlyContribution × 12) — фаза накопления.
+ * После выхода на пенсию — фаза вывода: капитал продолжает расти на ту же
+ * реальную доходность, но каждый год из него вычитается фиксированная (в
+ * сегодняшних деньгах) сумма = капитал на момент выхода × ставка вывода.
+ * Считаем оба этапа вместе до endAge (по умолчанию 100 лет), чтобы видеть,
+ * хватит ли денег на всю жизнь или они закончатся раньше.
  */
 function computePensionProjection() {
   const inputs = getPensionInputs();
   const current = derived.kpi ? derived.kpi.marketValue : 0;
-  const years = Math.max(0, inputs.retireAge - inputs.age);
+  const yearsToRetire = Math.max(0, inputs.retireAge - inputs.age);
+  const totalYears = Math.max(0, inputs.endAge - inputs.age);
   const annualContribution = inputs.monthlyContribution * 12;
 
   const rows = [];
   let capital = current;
+  let capitalAtRetirement = null;
+  let annualWithdrawal = null;
+  let depletedAtAge = null;
   const startYear = new Date().getFullYear();
-  for (let y = 1; y <= years; y++) {
-    capital = capital * (1 + inputs.returnRate) + annualContribution;
+
+  for (let y = 1; y <= totalYears; y++) {
+    const age = inputs.age + y;
+    const isRetired = age > inputs.retireAge;
+
+    if (!isRetired) {
+      capital = capital * (1 + inputs.returnRate) + annualContribution;
+    } else {
+      if (capitalAtRetirement === null) {
+        capitalAtRetirement = capital;
+        annualWithdrawal = capitalAtRetirement * inputs.withdrawRate;
+      }
+      capital = capital * (1 + inputs.returnRate) - annualWithdrawal;
+      if (capital < 0) capital = 0;
+    }
+
+    if (capital <= 0 && depletedAtAge === null && isRetired) depletedAtAge = age;
+
     rows.push({
       year: startYear + y,
-      age: inputs.age + y,
-      contribution: annualContribution,
+      age,
+      phase: isRetired ? "Пенсия" : "Накопление",
+      contribution: isRetired ? 0 : annualContribution,
+      withdrawal: isRetired ? annualWithdrawal : 0,
       capital,
-      monthlyIncome: (capital * inputs.withdrawRate) / 12,
+      monthlyIncome: isRetired ? annualWithdrawal / 12 : (capital * inputs.withdrawRate) / 12,
     });
   }
 
-  const projected = rows.length ? rows[rows.length - 1].capital : current;
+  const retirementRow = rows.find((r) => r.age === inputs.retireAge) || rows[rows.length - 1] || { capital: current };
+  const projected = retirementRow.capital;
   const requiredCapital = inputs.withdrawRate > 0 ? inputs.targetIncome / inputs.withdrawRate : null;
   const projectedMonthlyIncome = (projected * inputs.withdrawRate) / 12;
 
-  return { inputs, current, years, rows, projected, requiredCapital, projectedMonthlyIncome };
+  return {
+    inputs, current, years: yearsToRetire, rows, projected, requiredCapital,
+    projectedMonthlyIncome, depletedAtAge, endAge: inputs.endAge,
+  };
 }
 
 function renderPension() {
@@ -298,16 +335,28 @@ function renderPension() {
     document.getElementById("pIncomeGap").textContent = "—";
   }
 
+  const depletionEl = document.getElementById("pDepletionNote");
+  if (depletionEl) {
+    if (p.depletedAtAge !== null) {
+      depletionEl.textContent = `⚠ При текущих параметрах капитал заканчивается в ${p.depletedAtAge} лет (до ${p.endAge} не хватает)`;
+      depletionEl.className = "panel-note is-negative";
+    } else {
+      depletionEl.textContent = `Капитала хватает минимум до ${p.endAge} лет`;
+      depletionEl.className = "panel-note is-positive";
+    }
+  }
+
   const tbody = document.getElementById("pensionTableBody");
   tbody.innerHTML = "";
   if (!p.rows.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-row">Возраст выхода на пенсию уже достигнут или меньше текущего</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Проверь возраста в параметрах</td></tr>';
   } else {
     p.rows.forEach((r) => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${r.year}</td><td class="num">${r.age}</td>
-        <td class="num">${fmtMoney(r.contribution)}</td>
-        <td class="num">${fmtMoney(r.capital)}</td>
+      if (r.age === p.inputs.retireAge) tr.classList.add("ticker-total-row");
+      tr.innerHTML = `<td>${r.year}</td><td class="num">${r.age}</td><td>${r.phase}</td>
+        <td class="num">${r.contribution ? fmtMoney(r.contribution) : (r.withdrawal ? "-" + fmtMoney(r.withdrawal) : "—")}</td>
+        <td class="num${r.capital <= 0 ? " is-negative" : ""}">${fmtMoney(r.capital)}</td>
         <td class="num">${fmtMoney(r.monthlyIncome)}</td>`;
       tbody.appendChild(tr);
     });
@@ -316,6 +365,7 @@ function renderPension() {
   const ctx = document.getElementById("pensionChart");
   const labels = ["сейчас", ...p.rows.map((r) => String(r.year))];
   const dataPoints = [p.current, ...p.rows.map((r) => r.capital)];
+  const retireIdx = 1 + p.rows.findIndex((r) => r.age === p.inputs.retireAge);
   if (pensionChart) pensionChart.destroy();
   pensionChart = new Chart(ctx, {
     type: "line",
@@ -331,6 +381,9 @@ function renderPension() {
           pointRadius: 0,
           fill: true,
           tension: 0.1,
+          segment: {
+            borderColor: (ctx2) => (ctx2.p0DataIndex >= retireIdx ? "#3E7B8C" : "#C39A48"),
+          },
         },
         ...(p.requiredCapital !== null
           ? [{
@@ -356,7 +409,7 @@ function renderPension() {
 }
 
 function wirePensionInputs() {
-  ["pAge", "pRetireAge", "pMonthlyContribution", "pReturnRate", "pWithdrawRate", "pTargetIncome"].forEach((id) => {
+  ["pAge", "pRetireAge", "pMonthlyContribution", "pNominalReturn", "pInflation", "pWithdrawRate", "pTargetIncome", "pEndAge"].forEach((id) => {
     document.getElementById(id).addEventListener("input", () => { if (derived.kpi) renderPension(); });
   });
 }

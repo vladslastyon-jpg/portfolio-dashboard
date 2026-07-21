@@ -236,16 +236,24 @@
         <input type="number" id="pMonthlyContribution" value="1500" min="0" step="50" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Ожидаемая реальная доходность, %/год</span>
-        <input type="number" id="pReturnRate" value="7" min="0" max="20" step="0.5" />
+        <span class="figure-label">Номинальная доходность, %/год</span>
+        <input type="number" id="pNominalReturn" value="9" min="0" max="25" step="0.5" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Инфляция, %/год</span>
+        <input type="number" id="pInflation" value="2" min="0" max="15" step="0.25" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Ставка вывода на пенсии, %/год</span>
         <input type="number" id="pWithdrawRate" value="4" min="1" max="10" step="0.25" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Целевой пассивный доход, $/год</span>
+        <span class="figure-label">Целевой пассивный доход, $/год (сегодняшними деньгами)</span>
         <input type="number" id="pTargetIncome" value="40000" min="0" step="1000" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">До какого возраста считать</span>
+        <input type="number" id="pEndAge" value="100" min="65" max="110" />
       </label>
     </div>
   </section>
@@ -293,8 +301,8 @@
 
   <section class="panel pension-chart-panel" aria-label="Траектория роста капитала до пенсии">
     <div class="panel-header">
-      <h2>Траектория роста капитала до пенсии</h2>
-      <span class="panel-note">с довнесениями, по годам</span>
+      <h2>Траектория капитала (накопление + пенсия)</h2>
+      <span class="panel-note" id="pDepletionNote">—</span>
     </div>
     <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="pensionChart"></canvas></div>
   </section>
@@ -306,7 +314,7 @@
     <div class="table-scroll">
       <table class="ledger-table" id="pensionTable">
         <thead>
-          <tr><th>Год</th><th class="num">Возраст</th><th class="num">Взносы за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес при 4%</th></tr>
+          <tr><th>Год</th><th class="num">Возраст</th><th>Фаза</th><th class="num">Взносы / вывод за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес</th></tr>
         </thead>
         <tbody id="pensionTableBody"></tbody>
       </table>
