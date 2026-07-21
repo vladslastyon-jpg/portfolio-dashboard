@@ -225,19 +225,19 @@
     <div class="pension-inputs-grid">
       <label class="pension-input">
         <span class="figure-label">Текущий возраст</span>
-        <input type="number" id="pAge" value="35" min="18" max="80" />
+        <input type="number" id="pAge" value="47" min="18" max="80" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Возраст выхода на пенсию</span>
-        <input type="number" id="pRetireAge" value="62" min="40" max="80" />
+        <input type="number" id="pRetireAge" value="60" min="40" max="80" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Ежемесячное довнесение, $</span>
-        <input type="number" id="pMonthlyContribution" value="1500" min="0" step="50" />
+        <span class="figure-label">До какого возраста считать</span>
+        <input type="number" id="pEndAge" value="100" min="65" max="110" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Номинальная доходность, %/год</span>
-        <input type="number" id="pNominalReturn" value="9" min="0" max="25" step="0.5" />
+        <input type="number" id="pNominalReturn" value="10" min="0" max="25" step="0.5" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Инфляция, %/год</span>
@@ -247,13 +247,12 @@
         <span class="figure-label">Ставка вывода на пенсии, %/год</span>
         <input type="number" id="pWithdrawRate" value="4" min="1" max="10" step="0.25" />
       </label>
-      <label class="pension-input">
-        <span class="figure-label">Целевой пассивный доход, $/год (сегодняшними деньгами)</span>
-        <input type="number" id="pTargetIncome" value="40000" min="0" step="1000" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">До какого возраста считать</span>
-        <input type="number" id="pEndAge" value="100" min="65" max="110" />
+      <label class="pension-input pension-input--wide">
+        <span class="figure-label">Целевой пассивный доход, $/мес (сегодняшними деньгами)</span>
+        <div class="pension-input-row">
+          <input type="number" id="pTargetIncomeMonthly" value="3333" min="0" step="100" />
+          <span class="pension-input-computed" id="pTargetIncomeYearly">≈ $40,000/год</span>
+        </div>
       </label>
     </div>
   </section>
@@ -314,7 +313,7 @@
     <div class="table-scroll">
       <table class="ledger-table" id="pensionTable">
         <thead>
-          <tr><th>Год</th><th class="num">Возраст</th><th>Фаза</th><th class="num">Взносы / вывод за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес</th></tr>
+          <tr><th class="num">Возраст</th><th>Фаза</th><th class="num">Вывод за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес</th></tr>
         </thead>
         <tbody id="pensionTableBody"></tbody>
       </table>

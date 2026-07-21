@@ -230,26 +230,28 @@ function getPensionInputs() {
   const nominalReturn = (parseNum(document.getElementById("pNominalReturn").value) || 0) / 100;
   const inflation = (parseNum(document.getElementById("pInflation").value) || 0) / 100;
   const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
+  const targetIncomeMonthly = parseNum(document.getElementById("pTargetIncomeMonthly").value) || 0;
   return {
     age: parseNum(document.getElementById("pAge").value) || 35,
     retireAge: parseNum(document.getElementById("pRetireAge").value) || 62,
     endAge: parseNum(document.getElementById("pEndAge").value) || 100,
-    monthlyContribution: parseNum(document.getElementById("pMonthlyContribution").value) || 0,
     nominalReturn,
     inflation,
     returnRate: realReturn, // реальная доходность (уже без инфляции), используется во всех расчётах ниже
     withdrawRate: (parseNum(document.getElementById("pWithdrawRate").value) || 4) / 100,
-    targetIncome: parseNum(document.getElementById("pTargetIncome").value) || 0,
+    targetIncomeMonthly,
+    targetIncome: targetIncomeMonthly * 12,
   };
 }
 
 /**
  * Год за годом наращивает капитал: текущий портфель (KPI "Рыночная стоимость")
- * растёт на реальную доходность (номинальная минус инфляция) в год и получает
- * ежегодные довнесения (monthlyContribution × 12) — фаза накопления.
+ * растёт на реальную доходность (номинальная минус инфляция) в год —
+ * фаза накопления (без новых довнесений, только рост существующего капитала).
  * После выхода на пенсию — фаза вывода: капитал продолжает расти на ту же
- * реальную доходность, но каждый год из него вычитается фиксированная (в
- * сегодняшних деньгах) сумма = капитал на момент выхода × ставка вывода.
+ * реальную доходность, но каждый год из него вычитается ровно целевой
+ * пассивный доход (targetIncome, в сегодняшних деньгах) — то есть именно
+ * та сумма, которую человек хочет получать, а не пересчитанная от капитала.
  * Считаем оба этапа вместе до endAge (по умолчанию 100 лет), чтобы видеть,
  * хватит ли денег на всю жизнь или они закончатся раньше.
  */
@@ -258,12 +260,10 @@ function computePensionProjection() {
   const current = derived.kpi ? derived.kpi.marketValue : 0;
   const yearsToRetire = Math.max(0, inputs.retireAge - inputs.age);
   const totalYears = Math.max(0, inputs.endAge - inputs.age);
-  const annualContribution = inputs.monthlyContribution * 12;
+  const annualWithdrawal = inputs.targetIncome;
 
   const rows = [];
   let capital = current;
-  let capitalAtRetirement = null;
-  let annualWithdrawal = null;
   let depletedAtAge = null;
   const startYear = new Date().getFullYear();
 
@@ -272,12 +272,8 @@ function computePensionProjection() {
     const isRetired = age > inputs.retireAge;
 
     if (!isRetired) {
-      capital = capital * (1 + inputs.returnRate) + annualContribution;
+      capital = capital * (1 + inputs.returnRate);
     } else {
-      if (capitalAtRetirement === null) {
-        capitalAtRetirement = capital;
-        annualWithdrawal = capitalAtRetirement * inputs.withdrawRate;
-      }
       capital = capital * (1 + inputs.returnRate) - annualWithdrawal;
       if (capital < 0) capital = 0;
     }
@@ -288,7 +284,7 @@ function computePensionProjection() {
       year: startYear + y,
       age,
       phase: isRetired ? "Пенсия" : "Накопление",
-      contribution: isRetired ? 0 : annualContribution,
+      contribution: 0,
       withdrawal: isRetired ? annualWithdrawal : 0,
       capital,
       monthlyIncome: isRetired ? annualWithdrawal / 12 : (capital * inputs.withdrawRate) / 12,
@@ -354,8 +350,8 @@ function renderPension() {
     p.rows.forEach((r) => {
       const tr = document.createElement("tr");
       if (r.age === p.inputs.retireAge) tr.classList.add("ticker-total-row");
-      tr.innerHTML = `<td>${r.year}</td><td class="num">${r.age}</td><td>${r.phase}</td>
-        <td class="num">${r.contribution ? fmtMoney(r.contribution) : (r.withdrawal ? "-" + fmtMoney(r.withdrawal) : "—")}</td>
+      tr.innerHTML = `<td class="num">${r.age}</td><td>${r.phase}</td>
+        <td class="num">${r.withdrawal ? "-" + fmtMoney(r.withdrawal) : "—"}</td>
         <td class="num${r.capital <= 0 ? " is-negative" : ""}">${fmtMoney(r.capital)}</td>
         <td class="num">${fmtMoney(r.monthlyIncome)}</td>`;
       tbody.appendChild(tr);
@@ -363,9 +359,13 @@ function renderPension() {
   }
 
   const ctx = document.getElementById("pensionChart");
-  const labels = ["сейчас", ...p.rows.map((r) => String(r.year))];
+  const labels = ["сейчас", ...p.rows.map((r) => String(r.age))];
   const dataPoints = [p.current, ...p.rows.map((r) => r.capital)];
   const retireIdx = 1 + p.rows.findIndex((r) => r.age === p.inputs.retireAge);
+  // Разбиваем на два датасета (накопление / пенсия), чтобы легенда явно
+  // показывала, где начинается фаза вывода — не только цветом линии.
+  const accumData = dataPoints.map((v, i) => (i <= retireIdx ? v : null));
+  const drawdownData = dataPoints.map((v, i) => (i >= retireIdx ? v : null));
   if (pensionChart) pensionChart.destroy();
   pensionChart = new Chart(ctx, {
     type: "line",
@@ -373,17 +373,26 @@ function renderPension() {
       labels,
       datasets: [
         {
-          label: "Капитал",
-          data: dataPoints.map((v) => convertCurrency(v, currentCurrency)),
+          label: "Капитал — накопление",
+          data: accumData.map((v) => (v === null ? null : convertCurrency(v, currentCurrency))),
           borderColor: "#C39A48",
           backgroundColor: "rgba(195,154,72,0.10)",
           borderWidth: 2.5,
           pointRadius: 0,
           fill: true,
           tension: 0.1,
-          segment: {
-            borderColor: (ctx2) => (ctx2.p0DataIndex >= retireIdx ? "#3E7B8C" : "#C39A48"),
-          },
+          spanGaps: false,
+        },
+        {
+          label: "Капитал — на пенсии (вывод)",
+          data: drawdownData.map((v) => (v === null ? null : convertCurrency(v, currentCurrency))),
+          borderColor: "#3E7B8C",
+          backgroundColor: "rgba(62,123,140,0.12)",
+          borderWidth: 2.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.1,
+          spanGaps: false,
         },
         ...(p.requiredCapital !== null
           ? [{
@@ -409,9 +418,20 @@ function renderPension() {
 }
 
 function wirePensionInputs() {
-  ["pAge", "pRetireAge", "pMonthlyContribution", "pNominalReturn", "pInflation", "pWithdrawRate", "pTargetIncome", "pEndAge"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", () => { if (derived.kpi) renderPension(); });
+  const ids = ["pAge", "pRetireAge", "pEndAge", "pNominalReturn", "pInflation", "pWithdrawRate", "pTargetIncomeMonthly"];
+  ids.forEach((id) => {
+    document.getElementById(id).addEventListener("input", () => {
+      updateTargetIncomeYearlyDisplay();
+      if (derived.kpi) renderPension();
+    });
   });
+  updateTargetIncomeYearlyDisplay();
+}
+
+function updateTargetIncomeYearlyDisplay() {
+  const monthly = parseNum(document.getElementById("pTargetIncomeMonthly").value) || 0;
+  const yearlyEl = document.getElementById("pTargetIncomeYearly");
+  if (yearlyEl) yearlyEl.textContent = `≈ ${fmtMoney(monthly * 12, "USD")}/год`;
 }
 
 /* ---- helpers used by drill-down and annual comparison ---- */

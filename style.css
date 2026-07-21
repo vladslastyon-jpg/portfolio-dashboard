@@ -392,12 +392,20 @@ body {
 .pension-inputs-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 16px 20px;
+  align-items: end;
 }
 .pension-input {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  justify-content: flex-end;
+}
+.pension-input .figure-label {
+  min-height: 28px;
+  display: flex;
+  align-items: flex-end;
+  line-height: 1.3;
 }
 .pension-input input {
   background: var(--surface-raised);
@@ -409,6 +417,15 @@ body {
   border-radius: var(--radius);
 }
 .pension-input input:focus { outline: none; border-color: var(--accent-brass-dim); }
+.pension-input--wide { grid-column: span 2; }
+.pension-input-row { display: flex; align-items: center; gap: 10px; }
+.pension-input-row input { flex: 1; }
+.pension-input-computed {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 
 .pension-kpi-panel {
   grid-column: span 12;
@@ -590,6 +607,12 @@ body {
 .empty-row { text-align: center; color: var(--text-faint); font-family: var(--font-body); padding: 20px; }
 
 .table-scroll { max-height: 420px; overflow-y: auto; }
+.table-scroll .ledger-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 2;
+}
 
 .chart-canvas-wrap {
   position: relative;
