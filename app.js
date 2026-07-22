@@ -423,15 +423,55 @@ function wirePensionInputs() {
     document.getElementById(id).addEventListener("input", () => {
       updateTargetIncomeYearlyDisplay();
       if (derived.kpi) renderPension();
+      renderWhatIf();
     });
   });
   updateTargetIncomeYearlyDisplay();
+
+  ["wCapitalNow", "wSpendMonthly"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", renderWhatIf);
+  });
+  renderWhatIf();
 }
 
 function updateTargetIncomeYearlyDisplay() {
   const monthly = parseNum(document.getElementById("pTargetIncomeMonthly").value) || 0;
   const yearlyEl = document.getElementById("pTargetIncomeYearly");
   if (yearlyEl) yearlyEl.textContent = `≈ ${fmtMoney(monthly * 12, "USD")}/год`;
+}
+
+/**
+ * Два независимых калькулятора "что если", используют возраст/возраст выхода
+ * и реальную доходность (номинальная минус инфляция) из общих параметров
+ * расчёта пенсии, но со своим собственным капиталом/тратами — не привязаны
+ * к текущему реальному портфелю и к целевому доходу выше.
+ *
+ * Прямой: если сейчас есть X — вырастет за yearsToRetire лет на реальную
+ * доходность (без довнесений) → сколько можно тратить в месяц на пенсии
+ * при заданной ставке вывода.
+ *
+ * Обратный: чтобы тратить X в месяц на пенсии (в сегодняшних деньгах) —
+ * сколько нужно капитала на момент выхода (X×12/ставка вывода), и дисконтируем
+ * эту сумму назад к сегодняшнему дню той же реальной доходностью, чтобы
+ * узнать, сколько нужно иметь уже сейчас.
+ */
+function renderWhatIf() {
+  const inputs = getPensionInputs();
+  const years = Math.max(0, inputs.retireAge - inputs.age);
+  const growthFactor = Math.pow(1 + inputs.returnRate, years);
+
+  const capitalNow = parseNum(document.getElementById("wCapitalNow").value) || 0;
+  const projectedAtRetire = capitalNow * growthFactor;
+  const canSpendMonthly = (projectedAtRetire * inputs.withdrawRate) / 12;
+  document.getElementById("wProjectedAtRetireLabel").textContent = `Вырастет к ${inputs.retireAge} годам (реальными деньгами)`;
+  document.getElementById("wProjectedAtRetire").textContent = fmtMoney(projectedAtRetire);
+  document.getElementById("wCanSpendMonthly").textContent = fmtMoney(canSpendMonthly) + "/мес";
+
+  const spendMonthly = parseNum(document.getElementById("wSpendMonthly").value) || 0;
+  const requiredAtRetire = inputs.withdrawRate > 0 ? (spendMonthly * 12) / inputs.withdrawRate : null;
+  const requiredNow = requiredAtRetire !== null && growthFactor > 0 ? requiredAtRetire / growthFactor : null;
+  document.getElementById("wRequiredAtRetire").textContent = requiredAtRetire === null ? "—" : fmtMoney(requiredAtRetire);
+  document.getElementById("wRequiredNow").textContent = requiredNow === null ? "—" : fmtMoney(requiredNow);
 }
 
 /* ---- helpers used by drill-down and annual comparison ---- */

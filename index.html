@@ -306,6 +306,48 @@
     <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="pensionChart"></canvas></div>
   </section>
 
+  <section class="panel whatif-panel whatif-panel--forward" aria-label="Что если: сколько можно тратить">
+    <div class="panel-header">
+      <h2>Что если: сколько можно тратить</h2>
+      <span class="panel-note">задай гипотетический капитал сейчас</span>
+    </div>
+    <label class="pension-input">
+      <span class="figure-label">Капитал сейчас (гипотетический), $</span>
+      <input type="number" id="wCapitalNow" value="500000" min="0" step="10000" />
+    </label>
+    <div class="whatif-result">
+      <div class="whatif-result-row">
+        <span class="figure-label" id="wProjectedAtRetireLabel">Вырастет к пенсии (реальными деньгами)</span>
+        <span class="figure-value" id="wProjectedAtRetire">—</span>
+      </div>
+      <div class="whatif-result-row whatif-result-row--highlight">
+        <span class="figure-label">Можно будет тратить</span>
+        <span class="figure-value" id="wCanSpendMonthly">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel whatif-panel whatif-panel--reverse" aria-label="Что если: сколько нужно иметь сейчас">
+    <div class="panel-header">
+      <h2>Что если: сколько нужно иметь сейчас</h2>
+      <span class="panel-note">задай желаемые траты на пенсии</span>
+    </div>
+    <label class="pension-input">
+      <span class="figure-label">Хочу тратить на пенсии, $/мес (сегодняшними деньгами)</span>
+      <input type="number" id="wSpendMonthly" value="3000" min="0" step="100" />
+    </label>
+    <div class="whatif-result">
+      <div class="whatif-result-row">
+        <span class="figure-label">Нужен капитал на момент выхода на пенсию</span>
+        <span class="figure-value" id="wRequiredAtRetire">—</span>
+      </div>
+      <div class="whatif-result-row whatif-result-row--highlight">
+        <span class="figure-label">Нужно иметь сейчас</span>
+        <span class="figure-value" id="wRequiredNow">—</span>
+      </div>
+    </div>
+  </section>
+
   <section class="panel pension-table-panel" aria-label="Таблица по годам">
     <div class="panel-header">
       <h2>По годам</h2>
