@@ -214,33 +214,42 @@ function createProfile(opts) {
     return prefix + base.charAt(0).toUpperCase() + base.slice(1);
   }
 
-  // Её портфель ведётся в EUR "от природы" (Транзакции/Asset_History уже в
-  // евро) — в отличие от твоего (нативно в USD). Поэтому для профиля с
-  // nativeCurrency === "EUR" переопределяем форматирование локально (внутри
-  // этого замыкания): всегда показываем € и НИКОГДА не делим/умножаем на
-  // eurUsdRate — общий переключатель USD/EUR в шапке сайта на её вкладку не
-  // влияет, т.к. эти локальные версии функций затеняют глобальные (JS
-  // разрешает вызовы вроде fmtMoney(...) внутри фабрики в первую очередь на
-  // эти локальные, если они определены). Для твоего профиля (nativeCurrency
-  // === "USD") ничего не переопределяем — там всё работает как раньше.
-  let fmtMoney, fmtMoneyNoDecimals;
-  if (opts.nativeCurrency === "EUR") {
-    fmtMoney = function (value) {
-      if (value === null || value === undefined || isNaN(value)) return "—";
-      const sign = value < 0 ? "-" : "";
-      return `${sign}€${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    };
-    fmtMoneyNoDecimals = function (value) {
-      if (value === null || value === undefined || isNaN(value)) return "—";
-      const sign = value < 0 ? "-" : "";
-      return `${sign}€${Math.round(Math.abs(value)).toLocaleString("en-US")}`;
-    };
-  } else {
-    // Твой профиль (USD) — делегируем на исходную глобальную логику
-    // (учитывает переключатель USD/EUR в шапке как раньше), поведение не
-    // меняется.
-    fmtMoney = window.fmtMoney;
-    fmtMoneyNoDecimals = window.fmtMoneyNoDecimals;
+  // У каждого профиля — своя "родная" валюта данных (opts.nativeCurrency:
+  // у тебя USD, у Алены EUR) и свой независимый переключатель отображения
+  // (profileCurrency, стартует равным родной валюте). В отличие от
+  // предыдущей версии, тут переключатель РЕАЛЬНО пересчитывает суммы в обе
+  // стороны через eurUsdRate — просто у каждого профиля свой собственный
+  // выбор валюты, не завязанный на переключатель другого профиля.
+  let profileCurrency = opts.nativeCurrency;
+
+  function convertCurrency(value, targetCcy = profileCurrency) {
+    if (value === null || value === undefined || isNaN(value)) return value;
+    if (targetCcy === opts.nativeCurrency || !eurUsdRate) return value;
+    // opts.nativeCurrency -> targetCcy, единственные два случая: USD<->EUR
+    if (opts.nativeCurrency === "USD" && targetCcy === "EUR") return value / eurUsdRate;
+    if (opts.nativeCurrency === "EUR" && targetCcy === "USD") return value * eurUsdRate;
+    return value;
+  }
+
+  function fmtMoney(value, ccy = profileCurrency) {
+    if (value === null || value === undefined || isNaN(value)) return "—";
+    const converted = convertCurrency(value, ccy);
+    const symbol = ccy === "EUR" ? "€" : "$";
+    const sign = converted < 0 ? "-" : "";
+    return `${sign}${symbol}${Math.abs(converted).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  function fmtMoneyNoDecimals(value, ccy = profileCurrency) {
+    if (value === null || value === undefined || isNaN(value)) return "—";
+    const converted = convertCurrency(value, ccy);
+    const symbol = ccy === "EUR" ? "€" : "$";
+    const sign = converted < 0 ? "-" : "";
+    return `${sign}${symbol}${Math.round(Math.abs(converted)).toLocaleString("en-US")}`;
+  }
+
+  function setCurrency(ccy) {
+    profileCurrency = ccy;
+    if (derived.kpi) renderAll();
   }
 
   // сырые данные из таблицы
@@ -502,7 +511,7 @@ function renderPension() {
       datasets: [
         {
           label: "Капитал — накопление",
-          data: accumData.map((v) => (v === null ? null : convertCurrency(v, currentCurrency))),
+          data: accumData.map((v) => (v === null ? null : convertCurrency(v))),
           borderColor: "#C39A48",
           backgroundColor: "rgba(195,154,72,0.10)",
           borderWidth: 2.5,
@@ -513,7 +522,7 @@ function renderPension() {
         },
         {
           label: "Капитал — на пенсии (вывод)",
-          data: drawdownData.map((v) => (v === null ? null : convertCurrency(v, currentCurrency))),
+          data: drawdownData.map((v) => (v === null ? null : convertCurrency(v))),
           borderColor: "#3E7B8C",
           backgroundColor: "rgba(62,123,140,0.12)",
           borderWidth: 2.5,
@@ -525,7 +534,7 @@ function renderPension() {
         ...(p.requiredCapital !== null
           ? [{
               label: "Нужный капитал",
-              data: dataPoints.map(() => convertCurrency(p.requiredCapital, currentCurrency)),
+              data: dataPoints.map(() => convertCurrency(p.requiredCapital)),
               borderColor: "#7C8798",
               backgroundColor: "transparent",
               borderWidth: 1.5,
@@ -539,7 +548,7 @@ function renderPension() {
       ...chartBaseOptions(false),
       plugins: {
         legend: { display: true, position: "top", labels: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, boxWidth: 10 } },
-        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${fmtMoney(convertCurrency(dataPoints[item.dataIndex], "USD"))}` } },
+        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${fmtMoney(dataPoints[item.dataIndex])}` } },
       },
     },
   });
@@ -1549,14 +1558,14 @@ function renderValueChart() {
   const source = derived.dailyValue && derived.dailyValue.length ? derived.dailyValue : derived.monthly;
   const filtered = filterByDaysPeriod(source, selectedValuePeriod, (m) => m.date);
   const labels = filtered.map((m) => formatDateLabel(m.date));
-  const valueData = filtered.map((m) => convertCurrency(m.value, currentCurrency));
+  const valueData = filtered.map((m) => convertCurrency(m.value));
 
   const cashflowByDate = {};
   (derived.cashflowDaily || []).forEach((c) => { cashflowByDate[c.date] = c.amount; });
   const cashflowData = filtered.map((m) => {
     const key = toISODateKey(m.date);
     const amt = key && cashflowByDate[key] ? cashflowByDate[key] : 0;
-    return amt ? convertCurrency(amt, currentCurrency) : 0;
+    return amt ? convertCurrency(amt) : 0;
   });
 
   if (valueChart) valueChart.destroy();
@@ -1830,6 +1839,8 @@ return {
   renderPension,
   wireInteractions,
   hasData: () => !!derived.kpi,
+  getCurrency: () => profileCurrency,
+  setCurrency,
 };
 }
 
@@ -1865,12 +1876,21 @@ const alenaProfile = createProfile({
 
 const PROFILES = [mainProfile, alenaProfile];
 
-/* -------------------------- Валюта (общая на весь сайт) -------------------------- */
+// Какой профиль отвечает за какую вкладку — нужно, чтобы переключатель
+// USD/EUR в шапке знал, к какому профилю применить клик.
+const TAB_TO_PROFILE = {
+  portfolio: mainProfile,
+  pension: mainProfile,
+  portfolioAlena: alenaProfile,
+  pensionAlena: alenaProfile,
+};
+let activeTab = "portfolio";
 
-function setCurrency(ccy) {
-  currentCurrency = ccy;
-  document.querySelectorAll(".ccy-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ccy === ccy));
-  PROFILES.forEach((p) => { if (p.hasData()) p.renderAll(); });
+/* -------------------------- Валюта (у каждого профиля своя, переключатель применяется к активной вкладке) -------------------------- */
+
+function syncCurrencyButtons() {
+  const activeCcy = TAB_TO_PROFILE[activeTab].getCurrency();
+  document.querySelectorAll(".ccy-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ccy === activeCcy));
 }
 
 /* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
@@ -1882,22 +1902,28 @@ document.addEventListener("DOMContentLoaded", () => {
     PROFILES.forEach((p) => p.fetchAll());
   });
   document.querySelectorAll(".ccy-btn").forEach((btn) => {
-    btn.addEventListener("click", () => setCurrency(btn.dataset.ccy));
+    btn.addEventListener("click", () => {
+      TAB_TO_PROFILE[activeTab].setCurrency(btn.dataset.ccy);
+      syncCurrencyButtons();
+    });
   });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tab = btn.dataset.tab;
+      activeTab = tab;
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("is-active", b === btn));
       document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.hidden = panel.dataset.tab !== tab;
       });
+      syncCurrencyButtons();
       if (tab === "pension" && mainProfile.hasData()) mainProfile.renderPension();
       if (tab === "pensionAlena" && alenaProfile.hasData()) alenaProfile.renderPension();
     });
   });
 
   PROFILES.forEach((p) => p.wireInteractions());
+  syncCurrencyButtons();
 
   initGis();
 });
