@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=12" />
+<link rel="stylesheet" href="style.css?v=13" />
 </head>
 <body>
 
@@ -46,6 +46,8 @@
 <nav class="tab-nav">
   <button class="tab-btn is-active" data-tab="portfolio">Портфель</button>
   <button class="tab-btn" data-tab="pension">Пенсия</button>
+  <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
+  <button class="tab-btn" data-tab="pensionAlena">Пенсия Алена</button>
 </nav>
 
 <div id="tabPortfolio" class="tab-panel app-grid is-active" data-tab="portfolio">
@@ -364,6 +366,309 @@
 
 </div>
 
+<div id="tabPortfolioAlena" class="tab-panel app-grid" data-tab="portfolioAlena" hidden>
+
+  <!-- 3.1 KPI STRIP -->
+  <section class="panel kpi-strip" aria-label="Обзор портфеля">
+    <div class="kpi-cell">
+      <div class="kpi-label">Инвестировано</div>
+      <div class="kpi-value" id="bKpiInvested">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Рыночная стоимость</div>
+      <div class="kpi-value" id="bKpiMarketValue">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прибыль</div>
+      <div class="kpi-value" id="bKpiProfit">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Доходность</div>
+      <div class="kpi-value" id="bKpiProfitPct">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Cash</div>
+      <div class="kpi-value" id="bKpiCashDelta">—</div>
+    </div>
+    <div class="kpi-rail" aria-hidden="true"><div class="kpi-rail-fill" id="bKpiRailFill"></div></div>
+  </section>
+
+  <!-- Full ticker detail table (per-asset returns) -->
+  <section class="panel ticker-detail-panel" aria-label="Детальная таблица по активам">
+    <div class="panel-header">
+      <h2>Доходность по активам — детально</h2>
+    </div>
+    <div class="table-scroll table-scroll--wide">
+      <table class="ledger-table ticker-detail-table" id="bTickerDetailTable">
+        <thead>
+          <tr>
+            <th>Тикер</th><th class="num">Кол-во</th><th class="num">Ср. цена входа</th><th class="num">Текущая цена</th>
+            <th class="num">Сегодня, $</th>
+            <th class="num">Today</th><th class="num">7д</th><th class="num">30д</th><th class="num">90д</th>
+            <th class="num">YTD</th><th class="num">1Y</th><th class="num">2Y</th><th class="num">3Y</th><th class="num">4Y</th><th class="num">5Y</th><th class="num">Весь период</th>
+          </tr>
+        </thead>
+        <tbody id="bTickerDetailBody"><tr><td colspan="16" class="empty-row">Нет данных</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3.4 ALLOCATION (nested donut: groups inner ring, tickers outer ring) -->
+  <section class="panel allocation-panel" aria-label="Структура портфеля">
+    <div class="panel-header">
+      <h2>Структура портфеля</h2>
+      <span class="panel-note">наведите на сегмент для деталей</span>
+    </div>
+    <div class="allocation-body">
+      <div class="donut-wrap donut-wrap--nested"><canvas id="bAllocationChart"></canvas></div>
+      <div class="alloc-legend" id="bAllocationBody"></div>
+    </div>
+  </section>
+
+  <!-- Plan vs actual, nested by group -->
+  <section class="panel plan-actual-panel" aria-label="План против факта по группам и активам">
+    <div class="panel-header">
+      <h2>План против факта</h2>
+      <span class="panel-note">наведите на полосу для цифр</span>
+    </div>
+    <div id="bPlanActualBody"></div>
+    <div id="bPlanActualTooltip" class="plan-tooltip" hidden></div>
+  </section>
+
+  <!-- 3.6 ASSET RETURN COMPARISON -->
+  <section class="panel returns-compare-panel" aria-label="Сравнение доходности по активам">
+    <div class="panel-header">
+      <h2>Доходность по активам</h2>
+      <div class="period-btn-row" id="bAssetPeriodButtons">
+        <button data-period="1d">1Д</button>
+        <button data-period="1w">1Н</button>
+        <button data-period="1m">1М</button>
+        <button data-period="1y">1Г</button>
+        <button data-period="5y">5Л</button>
+        <button data-period="all" class="is-active">Макс.</button>
+      </div>
+    </div>
+    <div id="bAssetCheckboxes" class="asset-checkbox-row"></div>
+    <div class="chart-canvas-wrap"><canvas id="bAssetsReturnChart"></canvas></div>
+  </section>
+
+  <!-- Drill-down: monthly grid -->
+  <section class="panel monthly-grid-panel" aria-label="Доходность по месяцам с детализацией">
+    <div class="panel-header">
+      <h2>Доходность по месяцам</h2>
+      <span class="panel-note">клик по ячейке → активы за месяц</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table month-grid-table" id="bMonthGridTable">
+        <thead id="bMonthGridHead"></thead>
+        <tbody id="bMonthGridBody"></tbody>
+      </table>
+    </div>
+    <div id="bMonthDrilldown" class="month-drilldown" hidden>
+      <div class="panel-header">
+        <h2 id="bMonthDrilldownTitle">Детализация</h2>
+        <button id="bCloseDrilldown" class="link-btn">закрыть</button>
+      </div>
+      <table class="ledger-table">
+        <thead><tr><th>Актив</th><th class="num">Доходность %</th><th class="num">Доходность $</th></tr></thead>
+        <tbody id="bMonthDrilldownBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3.2 PERFORMANCE (value line + cashflow bars combined in one chart) -->
+  <section class="panel chart-panel" aria-label="Динамика стоимости портфеля и денежные потоки">
+    <div class="panel-header">
+      <h2>Динамика стоимости портфеля</h2>
+      <div class="period-btn-row" id="bValuePeriodButtons">
+        <button data-period="1d">1Д</button>
+        <button data-period="1w">1Н</button>
+        <button data-period="1m">1М</button>
+        <button data-period="1y">1Г</button>
+        <button data-period="5y">5Л</button>
+        <button data-period="all" class="is-active">Макс.</button>
+      </div>
+    </div>
+    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="bValueChart"></canvas></div>
+  </section>
+
+  <!-- 3.8 TRANSACTIONS -->
+  <section class="panel transactions-panel" aria-label="Детализация по сделкам">
+    <div class="panel-header">
+      <h2>Транзакции</h2>
+      <div class="filter-row">
+        <select id="bTickerFilter"><option value="">Все тикеры</option></select>
+        <input type="text" id="bDateFilterFrom" placeholder="с ГГГГ-ММ-ДД" />
+        <input type="text" id="bDateFilterTo" placeholder="по ГГГГ-ММ-ДД" />
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="bTxTable">
+        <thead>
+          <tr><th>Дата</th><th>Тикер</th><th class="num">Кол-во</th><th class="num">Цена</th><th class="num">Сумма</th></tr>
+        </thead>
+        <tbody id="bTxBody"><tr><td colspan="5" class="empty-row">Нет данных</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+
+<div id="tabPensionAlena" class="tab-panel app-grid" data-tab="pensionAlena" hidden>
+
+  <section class="panel pension-inputs-panel" aria-label="Параметры расчёта пенсии">
+    <div class="panel-header">
+      <h2>Параметры расчёта</h2>
+      <span class="panel-note">меняй значения — всё пересчитается сразу</span>
+    </div>
+    <div class="pension-inputs-grid">
+      <label class="pension-input">
+        <span class="figure-label">Текущий возраст</span>
+        <input type="number" id="bPAge" value="47" min="18" max="80" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Возраст выхода на пенсию</span>
+        <input type="number" id="bPRetireAge" value="60" min="40" max="80" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">До какого возраста считать</span>
+        <input type="number" id="bPEndAge" value="100" min="65" max="110" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Номинальная доходность, %/год</span>
+        <input type="number" id="bPNominalReturn" value="10" min="0" max="25" step="0.5" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Инфляция, %/год</span>
+        <input type="number" id="bPInflation" value="2" min="0" max="15" step="0.25" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Ставка вывода на пенсии, %/год</span>
+        <input type="number" id="bPWithdrawRate" value="4" min="1" max="10" step="0.25" />
+      </label>
+      <label class="pension-input pension-input--wide">
+        <span class="figure-label">Целевой пассивный доход, $/мес (сегодняшними деньгами)</span>
+        <div class="pension-input-row">
+          <input type="number" id="bPTargetIncomeMonthly" value="3333" min="0" step="100" />
+          <span class="pension-input-computed" id="bPTargetIncomeYearly">≈ $40,000/год</span>
+        </div>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel pension-kpi-panel" aria-label="Итоги расчёта пенсии">
+    <div class="kpi-cell">
+      <div class="kpi-label">Текущий портфель</div>
+      <div class="kpi-value" id="bPKpiCurrent">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Лет до пенсии</div>
+      <div class="kpi-value" id="bPKpiYears">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прогноз капитала к пенсии</div>
+      <div class="kpi-value" id="bPKpiProjected">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Нужный капитал</div>
+      <div class="kpi-value" id="bPKpiRequired">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Прогноз дохода/мес</div>
+      <div class="kpi-value" id="bPKpiIncome">—</div>
+    </div>
+  </section>
+
+  <section class="panel pension-goal-panel" aria-label="Прогресс к целевому капиталу пенсии">
+    <div class="panel-header">
+      <h2>Прогресс к нужному капиталу</h2>
+      <span class="panel-note" id="bPGoalNote">—</span>
+    </div>
+    <div class="goal-track">
+      <div class="goal-track-fill" id="bPGoalTrackFill"></div>
+    </div>
+    <div class="goal-figures">
+      <div><span class="figure-label">Не хватает</span><span class="figure-value" id="bPGoalGap">—</span></div>
+      <div><span class="figure-label">Разница дохода vs цели, $/мес</span><span class="figure-value" id="bPIncomeGap">—</span></div>
+    </div>
+  </section>
+
+  <section class="panel pension-chart-panel" aria-label="Траектория роста капитала до пенсии">
+    <div class="panel-header">
+      <h2>Траектория капитала (накопление + пенсия)</h2>
+      <span class="panel-note" id="bPDepletionNote">—</span>
+    </div>
+    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="bPensionChart"></canvas></div>
+  </section>
+
+  <section class="panel whatif-panel whatif-panel--forward" aria-label="Что если: сколько можно тратить">
+    <div class="panel-header">
+      <h2>Что если: сколько можно тратить</h2>
+      <span class="panel-note">задай гипотетический капитал сейчас</span>
+    </div>
+    <label class="pension-input">
+      <span class="figure-label">Капитал сейчас (гипотетический), $</span>
+      <input type="number" id="bWCapitalNow" value="500000" min="0" step="10000" />
+    </label>
+    <div class="whatif-result">
+      <div class="whatif-result-row">
+        <span class="figure-label" id="bWProjectedAtRetireLabel">Вырастет к пенсии (реальными деньгами)</span>
+        <span class="figure-value" id="bWProjectedAtRetire">—</span>
+      </div>
+      <div class="whatif-result-row whatif-result-row--highlight">
+        <span class="figure-label">Можно будет тратить</span>
+        <span class="figure-value" id="bWCanSpendMonthly">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel whatif-panel whatif-panel--reverse" aria-label="Что если: сколько нужно иметь сейчас">
+    <div class="panel-header">
+      <h2>Что если: сколько нужно иметь сейчас</h2>
+      <span class="panel-note">задай желаемые траты на пенсии</span>
+    </div>
+    <label class="pension-input">
+      <span class="figure-label">Хочу тратить на пенсии, $/мес (сегодняшними деньгами)</span>
+      <input type="number" id="bWSpendMonthly" value="3000" min="0" step="100" />
+    </label>
+    <div class="whatif-result">
+      <div class="whatif-result-row">
+        <span class="figure-label">Нужен капитал на момент выхода на пенсию</span>
+        <span class="figure-value" id="bWRequiredAtRetire">—</span>
+      </div>
+      <div class="whatif-result-row whatif-result-row--highlight">
+        <span class="figure-label">Нужно иметь сейчас</span>
+        <span class="figure-value" id="bWRequiredNow">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel pension-table-panel" aria-label="Таблица по годам">
+    <div class="panel-header">
+      <h2>По годам</h2>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="bPensionTable">
+        <thead>
+          <tr><th class="num">Возраст</th><th>Фаза</th><th class="num">Вывод за год</th><th class="num">Капитал на конец года</th><th class="num">Доход/мес</th></tr>
+        </thead>
+        <tbody id="bPensionTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+
 </main>
 
 <div id="signedOutHint" class="signed-out-hint">
@@ -374,7 +679,7 @@
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="config.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="config.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

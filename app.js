@@ -1,8 +1,11 @@
 /* ==========================================================================
    Дашборд «Анализ портфеля» — основная логика.
    Архитектура: чтение Google Sheets API v4 через OAuth (Google Identity
-   Services), без сервера. Все вычисления (Modified Dietz уже посчитан в
-   таблице; здесь только агрегация для отображения) идут в браузере.
+   Services), без сервера. Поддерживает ДВА независимых портфеля на одном
+   сайте (свой и Алены) через фабрику createProfile() — каждый инстанс
+   держит свои raw/derived/чарты и читает свою Google Таблицу, но общие
+   чистые хелперы (форматирование, парсинг дат и т.д.) и авторизация — одни
+   на весь сайт.
    ========================================================================== */
 
 const CFG = window.DASHBOARD_CONFIG;
@@ -13,48 +16,9 @@ let tokenClient = null;
 let currentCurrency = "USD";
 let eurUsdRate = null; // сколько USD за 1 EUR
 
-// сырые данные из таблицы
-const raw = {
-  portfolioSummary: null,
-  mdSummary: null,
-  portfolioMonthly: null,
-  transactions: null,
-  assetHistory: null,
-  goldHistory: null,
-  dashboardInputs: null,
-  actualPortfolio: null,
-  portfolio500k: null,
-};
-
-// вычисленные данные
-const derived = {
-  kpi: null,          // {invested, marketValue, profit, profitPct}
-  periods: [],        // [{label, value}]
-  monthly: [],         // [{date, value, profitAbs, profitPct}]
-  allocation: [],      // [{ticker, group, shares, price, value, weight}]
-  txRows: [],          // [{date, ticker, qty, price, amount}]
-  cashflowMonthly: [], // [{month, amount}]
-  goals: [],           // [{name, amount, currency}]
-};
-
-let valueChart = null;
-let allocationChart = null;
-let assetsReturnChart = null;
-let pensionChart = null;
-
-const CORE_TICKERS = ["VOO", "CSPX", "SOXX", "SMH", "GOOGL", "4GLD"];
-const ASSET_COLORS = {
-  VOO: "#55A776", CSPX: "#3E7B8C", SOXX: "#C25C50",
-  SMH: "#9A6BA0", GOOGL: "#C39A48", "4GLD": "#B8934A",
-  Портфель: "#E9E6DC",
-};
-let assetChartVisibility = { Портфель: true, VOO: false, CSPX: false, SOXX: false, SMH: false, GOOGL: false, "4GLD": false };
-let selectedAssetPeriod = "all";
-let selectedValuePeriod = "all";
-
 const PERIOD_DAYS_BACK = { "1d": 1, "1w": 7, "1m": 30, "1y": 365, "5y": 1825 };
 
-/* -------------------------- helpers -------------------------- */
+/* -------------------------- общие чистые хелперы (не зависят от портфеля) -------------------------- */
 
 function fmtMoney(value, ccy = currentCurrency) {
   if (value === null || value === undefined || isNaN(value)) return "—";
@@ -98,7 +62,93 @@ function setStatus(msg, isError = false) {
   el.classList.toggle("is-error", isError);
 }
 
-/* -------------------------- Google Identity Services -------------------------- */
+function parseSheetDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === "string") {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Google Sheets API иногда отдаёт serial-число для дат, если формат ячейки не строковый
+  if (typeof v === "number") {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(epoch.getTime() + v * 86400000);
+  }
+  return null;
+}
+
+function toISODateKey(v) {
+  const d = parseSheetDate(v);
+  return d ? d.toISOString().slice(0, 10) : null;
+}
+
+function filterByDaysPeriod(list, period, dateGetter) {
+  if (!period || period === "all") return list;
+  const daysBack = PERIOD_DAYS_BACK[period];
+  if (!daysBack || !list.length) return list;
+  const lastDate = parseSheetDate(dateGetter(list[list.length - 1]));
+  if (!lastDate) return list;
+  const cutoff = new Date(lastDate.getTime() - daysBack * 86400000);
+  return list.filter((item) => { const d = parseSheetDate(dateGetter(item)); return d && d >= cutoff; });
+}
+
+function formatDateLabel(v) {
+  const d = parseSheetDate(v);
+  if (!d) return String(v);
+  return d.toLocaleDateString("ru-RU", { year: "2-digit", month: "short" });
+}
+
+function getGroupBaseColor(groupName) {
+  const g = (groupName || "").toUpperCase();
+  if (g.includes("ГЛОБАЛЬН")) return "#4A2E6D";   // тёмно-фиолетовый — S&P 500
+  if (g.includes("АГРЕССИВН")) return "#1E5631";  // тёмно-зелёный — Сателлиты
+  if (g.includes("ИНДИВИДУАЛ")) return "#1B3A6B"; // тёмно-синий — Индивидуальные акции
+  if (g.includes("ЗАЩИТ")) return "#7A6417";      // тёмно-жёлтый — Защита/Ликвидность
+  return "#5A5240";
+}
+
+function lightenHex(hex, amount) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) + Math.round(255 * amount);
+  let g = ((num >> 8) & 0xff) + Math.round(255 * amount);
+  let b = (num & 0xff) + Math.round(255 * amount);
+  r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
+  return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function chartBaseOptions(showFill) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: {
+        ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+        grid: { color: "#1E2530" },
+      },
+      y: {
+        ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } },
+        grid: { color: "#1E2530" },
+      },
+    },
+  };
+}
+
+function fmtMoneyNoDecimals(value) {
+  if (value === null || value === undefined || isNaN(value)) return "—";
+  const converted = convertCurrency(value, currentCurrency);
+  const symbol = currentCurrency === "EUR" ? "€" : "$";
+  const sign = converted < 0 ? "-" : "";
+  return `${sign}${symbol}${Math.round(Math.abs(converted)).toLocaleString("en-US")}`;
+}
+
+function numOrNull(v) {
+  if (v === "" || v === undefined || v === null || v === "-" || v === "−") return null;
+  if (typeof v === "string" && !/[0-9]/.test(v)) return null;
+  const n = parseNum(v);
+  return isNaN(n) ? null : n;
+}
+
+/* -------------------------- Google Identity Services (общие на весь сайт) -------------------------- */
 
 function initGis() {
   if (!window.google || !window.google.accounts) {
@@ -139,18 +189,67 @@ function signOut() {
   setStatus("Вы вышли из аккаунта.");
 }
 
+/**
+ * После входа — загружаем данные ОБОИХ портфелей (твоего и Алены) сразу,
+ * чтобы переключение между вкладками было мгновенным (без повторного
+ * похода в Google Sheets API). Если у второй таблицы ещё не настроен
+ * реальный Spreadsheet ID (плейсхолдер) — её fetchAll молча завершится
+ * ошибкой в своей вкладке, но это не помешает основному портфелю.
+ */
 function onSignedIn() {
   document.getElementById("signInBtn").hidden = true;
   document.getElementById("userChip").hidden = false;
   document.getElementById("userEmail").textContent = "подключено";
   document.getElementById("signedOutHint").hidden = true;
-  fetchAll();
+  mainProfile.fetchAll();
+  alenaProfile.fetchAll();
 }
 
-/* -------------------------- Data fetching -------------------------- */
+function createProfile(opts) {
+  const { prefix, label, spreadsheetId, sheets, coreTickers, assetColors, hasGoalPanel } = opts;
+
+  function pid(base) {
+    if (base === "app" || base === "refreshBtn") return base;
+    if (!prefix) return base;
+    return prefix + base.charAt(0).toUpperCase() + base.slice(1);
+  }
+
+  // сырые данные из таблицы
+  const raw = {
+    portfolioSummary: null,
+    mdSummary: null,
+    portfolioMonthly: null,
+    transactions: null,
+    assetHistory: null,
+    goldHistory: null,
+    dashboardInputs: null,
+    actualPortfolio: null,
+    portfolio500k: null,
+  };
+
+  // вычисленные данные
+  const derived = {
+    kpi: null,
+    periods: [],
+    monthly: [],
+    allocation: [],
+    txRows: [],
+    cashflowMonthly: [],
+    goals: [],
+  };
+
+  let valueChart = null;
+  let allocationChart = null;
+  let assetsReturnChart = null;
+  let pensionChart = null;
+
+  const assetChartVisibility = { Портфель: true };
+  coreTickers.forEach((t) => { assetChartVisibility[t] = false; });
+  let selectedAssetPeriod = "all";
+  let selectedValuePeriod = "all";
 
 function buildRanges() {
-  const s = CFG.SHEETS;
+  const s = sheets;
   return [
     `${s.portfolioSummary}!A1:M10`,
     `${s.mdSummary}!A1:B14`,
@@ -172,7 +271,7 @@ async function fetchAll() {
   try {
     const ranges = buildRanges();
     const params = ranges.map((r) => "ranges=" + encodeURIComponent(r)).join("&");
-    const url = `${SHEETS_API}/${CFG.SPREADSHEET_ID}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
+    const url = `${SHEETS_API}/${spreadsheetId}/values:batchGet?${params}&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
     const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
 
     if (!res.ok) {
@@ -227,18 +326,18 @@ function computeAll() {
 /* -------------------------- Pension calculator (раздел "Пенсия") -------------------------- */
 
 function getPensionInputs() {
-  const nominalReturn = (parseNum(document.getElementById("pNominalReturn").value) || 0) / 100;
-  const inflation = (parseNum(document.getElementById("pInflation").value) || 0) / 100;
+  const nominalReturn = (parseNum(document.getElementById(pid("pNominalReturn")).value) || 0) / 100;
+  const inflation = (parseNum(document.getElementById(pid("pInflation")).value) || 0) / 100;
   const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
-  const targetIncomeMonthly = parseNum(document.getElementById("pTargetIncomeMonthly").value) || 0;
+  const targetIncomeMonthly = parseNum(document.getElementById(pid("pTargetIncomeMonthly")).value) || 0;
   return {
-    age: parseNum(document.getElementById("pAge").value) || 35,
-    retireAge: parseNum(document.getElementById("pRetireAge").value) || 62,
-    endAge: parseNum(document.getElementById("pEndAge").value) || 100,
+    age: parseNum(document.getElementById(pid("pAge")).value) || 35,
+    retireAge: parseNum(document.getElementById(pid("pRetireAge")).value) || 62,
+    endAge: parseNum(document.getElementById(pid("pEndAge")).value) || 100,
     nominalReturn,
     inflation,
     returnRate: realReturn, // реальная доходность (уже без инфляции), используется во всех расчётах ниже
-    withdrawRate: (parseNum(document.getElementById("pWithdrawRate").value) || 4) / 100,
+    withdrawRate: (parseNum(document.getElementById(pid("pWithdrawRate")).value) || 4) / 100,
     targetIncomeMonthly,
     targetIncome: targetIncomeMonthly * 12,
   };
@@ -306,32 +405,32 @@ function renderPension() {
   if (!derived.kpi) return;
   const p = computePensionProjection();
 
-  document.getElementById("pKpiCurrent").textContent = fmtMoney(p.current);
-  document.getElementById("pKpiYears").textContent = p.years;
-  document.getElementById("pKpiProjected").textContent = fmtMoney(p.projected);
-  document.getElementById("pKpiRequired").textContent = p.requiredCapital === null ? "—" : fmtMoney(p.requiredCapital);
-  const incomeEl = document.getElementById("pKpiIncome");
+  document.getElementById(pid("pKpiCurrent")).textContent = fmtMoney(p.current);
+  document.getElementById(pid("pKpiYears")).textContent = p.years;
+  document.getElementById(pid("pKpiProjected")).textContent = fmtMoney(p.projected);
+  document.getElementById(pid("pKpiRequired")).textContent = p.requiredCapital === null ? "—" : fmtMoney(p.requiredCapital);
+  const incomeEl = document.getElementById(pid("pKpiIncome"));
   incomeEl.textContent = fmtMoney(p.projectedMonthlyIncome);
   incomeEl.className = "kpi-value " + signClass(p.requiredCapital !== null ? p.projected - p.requiredCapital : null);
 
   if (p.requiredCapital !== null && p.requiredCapital > 0) {
     const pct = Math.min(100, (p.projected / p.requiredCapital) * 100);
-    document.getElementById("pGoalTrackFill").style.width = pct + "%";
-    document.getElementById("pGoalNote").textContent = pct.toFixed(1) + "%";
+    document.getElementById(pid("pGoalTrackFill")).style.width = pct + "%";
+    document.getElementById(pid("pGoalNote")).textContent = pct.toFixed(1) + "%";
     const gap = Math.max(0, p.requiredCapital - p.projected);
-    document.getElementById("pGoalGap").textContent = gap > 0 ? fmtMoney(gap) : "цель достигнута";
+    document.getElementById(pid("pGoalGap")).textContent = gap > 0 ? fmtMoney(gap) : "цель достигнута";
     const incomeGap = p.projectedMonthlyIncome - p.inputs.targetIncome / 12;
-    const incomeGapEl = document.getElementById("pIncomeGap");
+    const incomeGapEl = document.getElementById(pid("pIncomeGap"));
     incomeGapEl.textContent = (incomeGap >= 0 ? "+" : "") + fmtMoney(incomeGap);
     incomeGapEl.className = "figure-value " + signClass(incomeGap);
   } else {
-    document.getElementById("pGoalTrackFill").style.width = "0%";
-    document.getElementById("pGoalNote").textContent = "—";
-    document.getElementById("pGoalGap").textContent = "—";
-    document.getElementById("pIncomeGap").textContent = "—";
+    document.getElementById(pid("pGoalTrackFill")).style.width = "0%";
+    document.getElementById(pid("pGoalNote")).textContent = "—";
+    document.getElementById(pid("pGoalGap")).textContent = "—";
+    document.getElementById(pid("pIncomeGap")).textContent = "—";
   }
 
-  const depletionEl = document.getElementById("pDepletionNote");
+  const depletionEl = document.getElementById(pid("pDepletionNote"));
   if (depletionEl) {
     if (p.depletedAtAge !== null) {
       depletionEl.textContent = `⚠ При текущих параметрах капитал заканчивается в ${p.depletedAtAge} лет (до ${p.endAge} не хватает)`;
@@ -342,7 +441,7 @@ function renderPension() {
     }
   }
 
-  const tbody = document.getElementById("pensionTableBody");
+  const tbody = document.getElementById(pid("pensionTableBody"));
   tbody.innerHTML = "";
   if (!p.rows.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-row">Проверь возраста в параметрах</td></tr>';
@@ -358,7 +457,7 @@ function renderPension() {
     });
   }
 
-  const ctx = document.getElementById("pensionChart");
+  const ctx = document.getElementById(pid("pensionChart"));
   const labels = ["сейчас", ...p.rows.map((r) => String(r.age))];
   const dataPoints = [p.current, ...p.rows.map((r) => r.capital)];
   const retireIdx = 1 + p.rows.findIndex((r) => r.age === p.inputs.retireAge);
@@ -420,7 +519,7 @@ function renderPension() {
 function wirePensionInputs() {
   const ids = ["pAge", "pRetireAge", "pEndAge", "pNominalReturn", "pInflation", "pWithdrawRate", "pTargetIncomeMonthly"];
   ids.forEach((id) => {
-    document.getElementById(id).addEventListener("input", () => {
+    document.getElementById(pid(id)).addEventListener("input", () => {
       updateTargetIncomeYearlyDisplay();
       if (derived.kpi) renderPension();
       renderWhatIf();
@@ -429,14 +528,14 @@ function wirePensionInputs() {
   updateTargetIncomeYearlyDisplay();
 
   ["wCapitalNow", "wSpendMonthly"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", renderWhatIf);
+    document.getElementById(pid(id)).addEventListener("input", renderWhatIf);
   });
   renderWhatIf();
 }
 
 function updateTargetIncomeYearlyDisplay() {
-  const monthly = parseNum(document.getElementById("pTargetIncomeMonthly").value) || 0;
-  const yearlyEl = document.getElementById("pTargetIncomeYearly");
+  const monthly = parseNum(document.getElementById(pid("pTargetIncomeMonthly")).value) || 0;
+  const yearlyEl = document.getElementById(pid("pTargetIncomeYearly"));
   if (yearlyEl) yearlyEl.textContent = `≈ ${fmtMoney(monthly * 12, "USD")}/год`;
 }
 
@@ -460,18 +559,18 @@ function renderWhatIf() {
   const years = Math.max(0, inputs.retireAge - inputs.age);
   const growthFactor = Math.pow(1 + inputs.returnRate, years);
 
-  const capitalNow = parseNum(document.getElementById("wCapitalNow").value) || 0;
+  const capitalNow = parseNum(document.getElementById(pid("wCapitalNow")).value) || 0;
   const projectedAtRetire = capitalNow * growthFactor;
   const canSpendMonthly = (projectedAtRetire * inputs.withdrawRate) / 12;
-  document.getElementById("wProjectedAtRetireLabel").textContent = `Вырастет к ${inputs.retireAge} годам (реальными деньгами)`;
-  document.getElementById("wProjectedAtRetire").textContent = fmtMoney(projectedAtRetire);
-  document.getElementById("wCanSpendMonthly").textContent = fmtMoney(canSpendMonthly) + "/мес";
+  document.getElementById(pid("wProjectedAtRetireLabel")).textContent = `Вырастет к ${inputs.retireAge} годам (реальными деньгами)`;
+  document.getElementById(pid("wProjectedAtRetire")).textContent = fmtMoney(projectedAtRetire);
+  document.getElementById(pid("wCanSpendMonthly")).textContent = fmtMoney(canSpendMonthly) + "/мес";
 
-  const spendMonthly = parseNum(document.getElementById("wSpendMonthly").value) || 0;
+  const spendMonthly = parseNum(document.getElementById(pid("wSpendMonthly")).value) || 0;
   const requiredAtRetire = inputs.withdrawRate > 0 ? (spendMonthly * 12) / inputs.withdrawRate : null;
   const requiredNow = requiredAtRetire !== null && growthFactor > 0 ? requiredAtRetire / growthFactor : null;
-  document.getElementById("wRequiredAtRetire").textContent = requiredAtRetire === null ? "—" : fmtMoney(requiredAtRetire);
-  document.getElementById("wRequiredNow").textContent = requiredNow === null ? "—" : fmtMoney(requiredNow);
+  document.getElementById(pid("wRequiredAtRetire")).textContent = requiredAtRetire === null ? "—" : fmtMoney(requiredAtRetire);
+  document.getElementById(pid("wRequiredNow")).textContent = requiredNow === null ? "—" : fmtMoney(requiredNow);
 }
 
 /* ---- helpers used by drill-down and annual comparison ---- */
@@ -528,7 +627,7 @@ function computeAssetGrowthSeries(period) {
 
   const labels = filtered.map((r) => formatDateLabel(r[0]));
   const series = {};
-  CORE_TICKERS.forEach((ticker) => {
+  coreTickers.forEach((ticker) => {
     const colIdx = header.indexOf(ticker);
     if (colIdx === -1) { series[ticker] = filtered.map(() => null); return; }
     const firstPrice = parseNum(filtered[0][colIdx]);
@@ -601,7 +700,7 @@ function computePortfolioGrowthIndexDaily() {
  * и посчитанную дневную доходность (ret, в %) — чтобы найти точный день и
  * точные цифры, которые ломают накопительный индекс.
  */
-window.debugPortfolioReturns = function (fromISO, toISO) {
+window["debugPortfolioReturns_" + label] = function (fromISO, toISO) {
   const dv = derived.dailyValue || [];
   const flows = computeDailyCashflowMap();
   const from = fromISO ? new Date(fromISO) : null;
@@ -669,7 +768,7 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
   let weightedNumerator = 0;
   let totalStartValue = 0;
 
-  CORE_TICKERS.forEach((ticker) => {
+  coreTickers.forEach((ticker) => {
     const sharesStart = sharesAsOfDate(ticker, dayBeforeStart);
     const sharesEnd = sharesAsOfDate(ticker, end);
     if (Math.abs(sharesStart) < 1e-9 && Math.abs(sharesEnd) < 1e-9) return;
@@ -832,12 +931,7 @@ function parseActualPortfolioSheet() {
   return { total, rows: tickerRows };
 }
 
-function numOrNull(v) {
-  if (v === "" || v === undefined || v === null || v === "-" || v === "−") return null;
-  if (typeof v === "string" && !/[0-9]/.test(v)) return null;
-  const n = parseNum(v);
-  return isNaN(n) ? null : n;
-}
+
 
 function computeTickerDetailTable() {
   derived.actualPortfolio = parseActualPortfolioSheet();
@@ -1045,25 +1139,13 @@ function computeDailyPortfolioValue() {
   derived.dailyValue = out;
 }
 
-function parseSheetDate(v) {
-  if (v instanceof Date) return v;
-  if (typeof v === "string") {
-    const d = new Date(v);
-    if (!isNaN(d.getTime())) return d;
-  }
-  // Google Sheets API иногда отдаёт serial-число для дат, если формат ячейки не строковый
-  if (typeof v === "number") {
-    const epoch = new Date(Date.UTC(1899, 11, 30));
-    return new Date(epoch.getTime() + v * 86400000);
-  }
-  return null;
-}
+
 
 /* -------------------------- Rendering -------------------------- */
 
 function renderAll() {
   renderKPI();
-  renderGoal();
+  if (hasGoalPanel) renderGoal();
   renderValueChart();
   renderAllocation();
   renderTransactions();
@@ -1076,16 +1158,16 @@ function renderAll() {
 }
 
 function renderAssetCheckboxes() {
-  const container = document.getElementById("assetCheckboxes");
+  const container = document.getElementById(pid("assetCheckboxes"));
   if (container.dataset.built) return;
   container.dataset.built = "1";
-  const names = ["Портфель", ...CORE_TICKERS];
+  const names = ["Портфель", ...coreTickers];
   names.forEach((name) => {
     const label = document.createElement("label");
     label.className = "asset-chip" + (assetChartVisibility[name] ? " is-active" : "");
     const swatch = document.createElement("span");
     swatch.className = "swatch";
-    swatch.style.background = ASSET_COLORS[name];
+    swatch.style.background = assetColors[name];
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = assetChartVisibility[name];
@@ -1104,26 +1186,26 @@ function renderAssetCheckboxes() {
 function renderAssetsReturnChart() {
   const data = computeAssetGrowthSeries(selectedAssetPeriod);
   if (!data.labels.length) return;
-  const ctx = document.getElementById("assetsReturnChart");
+  const ctx = document.getElementById(pid("assetsReturnChart"));
 
   const datasets = [];
   if (assetChartVisibility["Портфель"]) {
     datasets.push({
       label: "Портфель",
       data: data.portfolio,
-      borderColor: ASSET_COLORS["Портфель"],
+      borderColor: assetColors["Портфель"],
       backgroundColor: "transparent",
       borderWidth: 2.5,
       pointRadius: 0,
       spanGaps: true,
     });
   }
-  CORE_TICKERS.forEach((ticker) => {
+  coreTickers.forEach((ticker) => {
     if (!assetChartVisibility[ticker]) return;
     datasets.push({
       label: ticker,
       data: data.series[ticker],
-      borderColor: ASSET_COLORS[ticker],
+      borderColor: assetColors[ticker],
       backgroundColor: "transparent",
       borderWidth: 1.75,
       pointRadius: 0,
@@ -1157,11 +1239,11 @@ function renderAssetsReturnChart() {
 
 function renderMonthGrid() {
   const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-  const head = document.getElementById("monthGridHead");
+  const head = document.getElementById(pid("monthGridHead"));
   head.innerHTML = `<tr><th>Год</th>${monthNames.map((m) => `<th>${m}</th>`).join("")}</tr>`;
 
   const years = Object.keys(derived.monthGrid || {}).map(Number).sort();
-  const body = document.getElementById("monthGridBody");
+  const body = document.getElementById(pid("monthGridBody"));
   body.innerHTML = "";
   if (!years.length) {
     body.innerHTML = `<tr><td colspan="13" class="empty-row">Нет данных</td></tr>`;
@@ -1198,8 +1280,8 @@ function showMonthDrilldown(year, monthIndex) {
   const rows = computeMonthDrilldown(year, monthIndex, monthEntry);
   const monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 
-  document.getElementById("monthDrilldownTitle").textContent = `Активы за ${monthNames[monthIndex]} ${year}`;
-  const tbody = document.getElementById("monthDrilldownBody");
+  document.getElementById(pid("monthDrilldownTitle")).textContent = `Активы за ${monthNames[monthIndex]} ${year}`;
+  const tbody = document.getElementById(pid("monthDrilldownBody"));
   tbody.innerHTML = "";
   rows.forEach((r) => {
     const tr = document.createElement("tr");
@@ -1209,13 +1291,13 @@ function showMonthDrilldown(year, monthIndex) {
       <td class="num ${signClass(r.returnAbs)}">${r.returnAbs === null ? "—" : fmtMoney(r.returnAbs)}</td>`;
     tbody.appendChild(tr);
   });
-  document.getElementById("monthDrilldown").hidden = false;
-  document.getElementById("monthDrilldown").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  document.getElementById(pid("monthDrilldown")).hidden = false;
+  document.getElementById(pid("monthDrilldown")).scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function renderTickerDetailTable() {
   const data = derived.actualPortfolio;
-  const tbody = document.getElementById("tickerDetailBody");
+  const tbody = document.getElementById(pid("tickerDetailBody"));
   tbody.innerHTML = "";
   if (!data || !data.rows.length) {
     tbody.innerHTML = `<tr><td colspan="16" class="empty-row">Нет данных</td></tr>`;
@@ -1264,7 +1346,7 @@ function buildPlanBarHTML(factUSD, planUSD) {
 }
 
 function attachPlanTooltip(el, title, factUSD, planUSD, extra) {
-  const tooltip = document.getElementById("planActualTooltip");
+  const tooltip = document.getElementById(pid("planActualTooltip"));
   el.addEventListener("mouseenter", () => {
     const hasPlan = planUSD && planUSD > 0;
     const delta = hasPlan ? factUSD - planUSD : null;
@@ -1292,7 +1374,7 @@ function deltaHTML(factUSD, planUSD) {
 
 function renderPlanActual() {
   const pa = derived.planActual;
-  const container = document.getElementById("planActualBody");
+  const container = document.getElementById(pid("planActualBody"));
   if (!pa || !pa.groups.length) { container.innerHTML = ""; return; }
   container.innerHTML = "";
 
@@ -1360,24 +1442,24 @@ function getCashValue() {
 function renderKPI() {
   const k = derived.kpi;
   if (!k) return;
-  document.getElementById("kpiInvested").textContent = fmtMoney(k.invested);
-  document.getElementById("kpiMarketValue").textContent = fmtMoney(k.marketValue);
-  const profitEl = document.getElementById("kpiProfit");
+  document.getElementById(pid("kpiInvested")).textContent = fmtMoney(k.invested);
+  document.getElementById(pid("kpiMarketValue")).textContent = fmtMoney(k.marketValue);
+  const profitEl = document.getElementById(pid("kpiProfit"));
   profitEl.textContent = fmtMoney(k.profit);
   profitEl.className = "kpi-value " + signClass(k.profit);
-  const pctEl = document.getElementById("kpiProfitPct");
+  const pctEl = document.getElementById(pid("kpiProfitPct"));
   pctEl.textContent = fmtPct(k.profitPct);
   pctEl.className = "kpi-value " + signClass(k.profitPct);
 
   const cashValue = getCashValue();
   const cashTargetReserve = k.marketValue * 0.05;
   const cashDelta = cashValue - cashTargetReserve;
-  const cashEl = document.getElementById("kpiCashDelta");
+  const cashEl = document.getElementById(pid("kpiCashDelta"));
   cashEl.textContent = fmtMoney(cashDelta);
   cashEl.className = "kpi-value " + signClass(cashDelta);
 
   const railPct = k.invested > 0 ? Math.min(100, Math.max(0, (k.marketValue / k.invested) * 50)) : 0;
-  document.getElementById("kpiRailFill").style.width = railPct + "%";
+  document.getElementById(pid("kpiRailFill")).style.width = railPct + "%";
 }
 
 function renderGoal() {
@@ -1386,29 +1468,18 @@ function renderGoal() {
   const current = pa.currentTotal;
   const target = pa.targetTotal || 500000;
   const pct = Math.min(100, (current / target) * 100);
-  document.getElementById("goalTrackFill").style.width = pct + "%";
-  document.getElementById("goalCurrent").textContent = fmtMoney(current);
-  document.getElementById("goalRemaining").textContent = fmtMoney(pa.remaining !== null ? pa.remaining : Math.max(0, target - current));
-  document.getElementById("goalNote").textContent = `${pct.toFixed(1)}%`;
+  document.getElementById(pid("goalTrackFill")).style.width = pct + "%";
+  document.getElementById(pid("goalCurrent")).textContent = fmtMoney(current);
+  document.getElementById(pid("goalRemaining")).textContent = fmtMoney(pa.remaining !== null ? pa.remaining : Math.max(0, target - current));
+  document.getElementById(pid("goalNote")).textContent = `${pct.toFixed(1)}%`;
 }
 
-function filterByDaysPeriod(list, period, dateGetter) {
-  if (!period || period === "all") return list;
-  const daysBack = PERIOD_DAYS_BACK[period];
-  if (!daysBack || !list.length) return list;
-  const lastDate = parseSheetDate(dateGetter(list[list.length - 1]));
-  if (!lastDate) return list;
-  const cutoff = new Date(lastDate.getTime() - daysBack * 86400000);
-  return list.filter((item) => { const d = parseSheetDate(dateGetter(item)); return d && d >= cutoff; });
-}
 
-function toISODateKey(v) {
-  const d = parseSheetDate(v);
-  return d ? d.toISOString().slice(0, 10) : null;
-}
+
+
 
 function renderValueChart() {
-  const ctx = document.getElementById("valueChart");
+  const ctx = document.getElementById(pid("valueChart"));
   const source = derived.dailyValue && derived.dailyValue.length ? derived.dailyValue : derived.monthly;
   const filtered = filterByDaysPeriod(source, selectedValuePeriod, (m) => m.date);
   const labels = filtered.map((m) => formatDateLabel(m.date));
@@ -1488,34 +1559,14 @@ function renderValueChart() {
   });
 }
 
-function getGroupBaseColor(groupName) {
-  const g = (groupName || "").toUpperCase();
-  if (g.includes("ГЛОБАЛЬН")) return "#4A2E6D";   // тёмно-фиолетовый — S&P 500
-  if (g.includes("АГРЕССИВН")) return "#1E5631";  // тёмно-зелёный — Сателлиты
-  if (g.includes("ИНДИВИДУАЛ")) return "#1B3A6B"; // тёмно-синий — Индивидуальные акции
-  if (g.includes("ЗАЩИТ")) return "#7A6417";      // тёмно-жёлтый — Защита/Ликвидность
-  return "#5A5240";
-}
 
-function lightenHex(hex, amount) {
-  const num = parseInt(hex.slice(1), 16);
-  let r = (num >> 16) + Math.round(255 * amount);
-  let g = ((num >> 8) & 0xff) + Math.round(255 * amount);
-  let b = (num & 0xff) + Math.round(255 * amount);
-  r = Math.min(255, r); g = Math.min(255, g); b = Math.min(255, b);
-  return "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
 
-function fmtMoneyNoDecimals(value) {
-  if (value === null || value === undefined || isNaN(value)) return "—";
-  const converted = convertCurrency(value, currentCurrency);
-  const symbol = currentCurrency === "EUR" ? "€" : "$";
-  const sign = converted < 0 ? "-" : "";
-  return `${sign}${symbol}${Math.round(Math.abs(converted)).toLocaleString("en-US")}`;
-}
+
+
+
 
 function renderAllocation() {
-  const legend = document.getElementById("allocationBody");
+  const legend = document.getElementById(pid("allocationBody"));
   legend.innerHTML = "";
 
   const groupTotals = {};
@@ -1562,7 +1613,7 @@ function renderAllocation() {
     return lightenHex(base, n * 0.14);
   });
 
-  const ctx = document.getElementById("allocationChart");
+  const ctx = document.getElementById(pid("allocationChart"));
   if (allocationChart) allocationChart.destroy();
   allocationChart = new Chart(ctx, {
     type: "doughnut",
@@ -1610,34 +1661,14 @@ function renderAllocation() {
   });
 }
 
-function chartBaseOptions(showFill) {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: {
-        ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
-        grid: { color: "#1E2530" },
-      },
-      y: {
-        ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } },
-        grid: { color: "#1E2530" },
-      },
-    },
-  };
-}
 
-function formatDateLabel(v) {
-  const d = parseSheetDate(v);
-  if (!d) return String(v);
-  return d.toLocaleDateString("ru-RU", { year: "2-digit", month: "short" });
-}
+
+
 
 /* -------------------------- Transactions table + filters -------------------------- */
 
 function populateTickerFilter() {
-  const select = document.getElementById("tickerFilter");
+  const select = document.getElementById(pid("tickerFilter"));
   const existing = new Set(Array.from(select.options).map((o) => o.value));
   const tickers = Array.from(new Set(derived.txRows.map((t) => t.ticker))).sort();
   tickers.forEach((t) => {
@@ -1655,9 +1686,9 @@ function renderTransactions() {
 }
 
 function applyTransactionFilters() {
-  const tickerVal = document.getElementById("tickerFilter").value;
-  const fromVal = document.getElementById("dateFilterFrom").value.trim();
-  const toVal = document.getElementById("dateFilterTo").value.trim();
+  const tickerVal = document.getElementById(pid("tickerFilter")).value;
+  const fromVal = document.getElementById(pid("dateFilterFrom")).value.trim();
+  const toVal = document.getElementById(pid("dateFilterTo")).value.trim();
   const from = fromVal ? new Date(fromVal) : null;
   const to = toVal ? new Date(toVal) : null;
 
@@ -1670,7 +1701,7 @@ function applyTransactionFilters() {
   if (from) rows = rows.filter((r) => { const d = parseSheetDate(r.date); return d && d >= from; });
   if (to) rows = rows.filter((r) => { const d = parseSheetDate(r.date); return d && d <= to; });
 
-  const tbody = document.getElementById("txBody");
+  const tbody = document.getElementById(pid("txBody"));
   tbody.innerHTML = "";
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-row">Нет сделок по заданным фильтрам</td></tr>';
@@ -1690,42 +1721,94 @@ function applyTransactionFilters() {
 
 /* -------------------------- Currency toggle -------------------------- */
 
-function setCurrency(ccy) {
-  currentCurrency = ccy;
-  document.querySelectorAll(".ccy-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ccy === ccy));
-  if (derived.kpi) renderAll();
-}
 
-/* -------------------------- Wire up UI -------------------------- */
+function wireInteractions() {
+  const tickerFilterEl = document.getElementById(pid("tickerFilter"));
+  if (tickerFilterEl) tickerFilterEl.addEventListener("change", applyTransactionFilters);
+  const dateFromEl = document.getElementById(pid("dateFilterFrom"));
+  if (dateFromEl) dateFromEl.addEventListener("change", applyTransactionFilters);
+  const dateToEl = document.getElementById(pid("dateFilterTo"));
+  if (dateToEl) dateToEl.addEventListener("change", applyTransactionFilters);
+  const closeDrilldownEl = document.getElementById(pid("closeDrilldown"));
+  if (closeDrilldownEl) {
+    closeDrilldownEl.addEventListener("click", () => {
+      document.getElementById(pid("monthDrilldown")).hidden = true;
+    });
+  }
 
-document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("signInBtn").addEventListener("click", signIn);
-  document.getElementById("signOutBtn").addEventListener("click", signOut);
-  document.getElementById("refreshBtn").addEventListener("click", fetchAll);
-  document.querySelectorAll(".ccy-btn").forEach((btn) => {
-    btn.addEventListener("click", () => setCurrency(btn.dataset.ccy));
-  });
-  document.getElementById("tickerFilter").addEventListener("change", applyTransactionFilters);
-  document.getElementById("dateFilterFrom").addEventListener("change", applyTransactionFilters);
-  document.getElementById("dateFilterTo").addEventListener("change", applyTransactionFilters);
-  document.getElementById("closeDrilldown").addEventListener("click", () => {
-    document.getElementById("monthDrilldown").hidden = true;
-  });
-
-  document.querySelectorAll("#valuePeriodButtons button").forEach((btn) => {
+  const valueBtnsSel = "#" + pid("valuePeriodButtons") + " button";
+  document.querySelectorAll(valueBtnsSel).forEach((btn) => {
     btn.addEventListener("click", () => {
       selectedValuePeriod = btn.dataset.period;
-      document.querySelectorAll("#valuePeriodButtons button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll(valueBtnsSel).forEach((b) => b.classList.toggle("is-active", b === btn));
       renderValueChart();
     });
   });
 
-  document.querySelectorAll("#assetPeriodButtons button").forEach((btn) => {
+  const assetBtnsSel = "#" + pid("assetPeriodButtons") + " button";
+  document.querySelectorAll(assetBtnsSel).forEach((btn) => {
     btn.addEventListener("click", () => {
       selectedAssetPeriod = btn.dataset.period;
-      document.querySelectorAll("#assetPeriodButtons button").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll(assetBtnsSel).forEach((b) => b.classList.toggle("is-active", b === btn));
       renderAssetsReturnChart();
     });
+  });
+
+  wirePensionInputs();
+}
+
+return {
+  label,
+  fetchAll,
+  renderAll,
+  renderPension,
+  wireInteractions,
+  hasData: () => !!derived.kpi,
+};
+}
+
+/* -------------------------- Инстансы двух портфелей -------------------------- */
+
+const mainProfile = createProfile({
+  prefix: "",
+  label: "main",
+  spreadsheetId: CFG.SPREADSHEET_ID,
+  sheets: CFG.SHEETS,
+  coreTickers: CFG.CORE_TICKERS,
+  assetColors: CFG.ASSET_COLORS,
+  hasGoalPanel: true,
+});
+
+const alenaProfile = createProfile({
+  prefix: "b",
+  label: "alena",
+  spreadsheetId: CFG.SPREADSHEET_ID_ALENA,
+  sheets: CFG.SHEETS_ALENA || CFG.SHEETS,
+  coreTickers: CFG.CORE_TICKERS_ALENA,
+  assetColors: CFG.ASSET_COLORS_ALENA,
+  hasGoalPanel: false,
+});
+
+const PROFILES = [mainProfile, alenaProfile];
+
+/* -------------------------- Валюта (общая на весь сайт) -------------------------- */
+
+function setCurrency(ccy) {
+  currentCurrency = ccy;
+  document.querySelectorAll(".ccy-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ccy === ccy));
+  PROFILES.forEach((p) => { if (p.hasData()) p.renderAll(); });
+}
+
+/* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("signInBtn").addEventListener("click", signIn);
+  document.getElementById("signOutBtn").addEventListener("click", signOut);
+  document.getElementById("refreshBtn").addEventListener("click", () => {
+    PROFILES.forEach((p) => p.fetchAll());
+  });
+  document.querySelectorAll(".ccy-btn").forEach((btn) => {
+    btn.addEventListener("click", () => setCurrency(btn.dataset.ccy));
   });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -1735,10 +1818,12 @@ document.addEventListener("DOMContentLoaded", () => {
       document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.hidden = panel.dataset.tab !== tab;
       });
-      if (tab === "pension" && derived.kpi) renderPension();
+      if (tab === "pension" && mainProfile.hasData()) mainProfile.renderPension();
+      if (tab === "pensionAlena" && alenaProfile.hasData()) alenaProfile.renderPension();
     });
   });
-  wirePensionInputs();
+
+  PROFILES.forEach((p) => p.wireInteractions());
 
   initGis();
 });

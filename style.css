@@ -224,6 +224,31 @@ body {
 .tab-panel { display: none; }
 .tab-panel.is-active { display: grid; }
 
+/* Портфель/Пенсия Алены — отдельная, более холодная (тёмно-синяя) палитра,
+   чтобы визуально сразу отличать от основных вкладок. */
+.tab-panel[data-tab="portfolioAlena"],
+.tab-panel[data-tab="pensionAlena"] {
+  background: #0A0F2C;
+  margin: 0 -28px;
+  padding: 24px 28px 60px;
+}
+.tab-panel[data-tab="portfolioAlena"] .panel,
+.tab-panel[data-tab="pensionAlena"] .panel {
+  background: #10163A;
+  border-color: #232C5C;
+}
+.tab-panel[data-tab="portfolioAlena"] .kpi-rail,
+.tab-panel[data-tab="pensionAlena"] .kpi-rail,
+.tab-panel[data-tab="portfolioAlena"] .goal-track,
+.tab-panel[data-tab="pensionAlena"] .goal-track {
+  background: #1B2249;
+}
+.tab-panel[data-tab="portfolioAlena"] .hairline-soft,
+.tab-panel[data-tab="portfolioAlena"] .table-scroll .ledger-table thead th,
+.tab-panel[data-tab="pensionAlena"] .table-scroll .ledger-table thead th {
+  background: #10163A;
+}
+
 /* ---------------- Layout grid ---------------- */
 .app-grid {
   display: grid;
