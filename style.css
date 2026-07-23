@@ -196,11 +196,12 @@ body {
 /* ---------------- Tabs ---------------- */
 .tab-nav {
   display: flex;
-  gap: 4px;
+  justify-content: space-between;
   padding: 14px 28px 0;
   max-width: 1400px;
   margin: 0 auto;
 }
+.tab-nav-group { display: flex; gap: 4px; }
 .tab-btn {
   font-family: var(--font-display);
   font-size: 13px;
@@ -369,7 +370,7 @@ body {
 .chart-panel { grid-column: span 12; }
 .allocation-panel { grid-column: span 6; }
 .allocation-panel--full { grid-column: span 12; }
-.allocation-panel--full .allocation-body { justify-content: flex-start; gap: 60px; }
+.allocation-panel--full .allocation-body { justify-content: center; gap: 60px; }
 .allocation-panel--full .alloc-legend { max-width: 500px; }
 .transactions-panel { grid-column: span 12; }
 .returns-compare-panel { grid-column: span 12; }
@@ -466,6 +467,9 @@ body {
 .pension-goal-panel { grid-column: span 12; }
 .pension-chart-panel { grid-column: span 12; }
 .pension-table-panel { grid-column: span 12; }
+.state-pension-panel { grid-column: span 12; }
+.state-pension-panel .pension-kpi-panel { margin-top: 16px; }
+.state-pension-panel .panel-note { display: block; margin-top: 14px; line-height: 1.5; }
 
 .whatif-panel { grid-column: span 6; display: flex; flex-direction: column; gap: 16px; }
 .whatif-panel .pension-input input { font-size: 18px; padding: 10px 12px; }

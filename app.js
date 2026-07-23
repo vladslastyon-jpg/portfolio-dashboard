@@ -207,6 +207,8 @@ function onSignedIn() {
 
 function createProfile(opts) {
   const { prefix, label, spreadsheetId, sheets, coreTickers, assetColors, hasGoalPanel, hasPlan, indexTickers, benchmarkTicker } = opts;
+  const hasIncomeTarget = opts.hasIncomeTarget !== false; // по умолчанию true (текущее поведение, кроме профиля Алены)
+  const hasStatePension = !!opts.hasStatePension;
 
   function pid(base) {
     if (base === "app" || base === "refreshBtn") return base;
@@ -367,8 +369,7 @@ function getPensionInputs() {
   const nominalReturn = (parseNum(document.getElementById(pid("pNominalReturn")).value) || 0) / 100;
   const inflation = (parseNum(document.getElementById(pid("pInflation")).value) || 0) / 100;
   const realReturn = (1 + nominalReturn) / (1 + inflation) - 1;
-  const targetIncomeMonthly = parseNum(document.getElementById(pid("pTargetIncomeMonthly")).value) || 0;
-  return {
+  const base = {
     age: parseNum(document.getElementById(pid("pAge")).value) || 35,
     retireAge: parseNum(document.getElementById(pid("pRetireAge")).value) || 62,
     endAge: parseNum(document.getElementById(pid("pEndAge")).value) || 100,
@@ -376,9 +377,20 @@ function getPensionInputs() {
     inflation,
     returnRate: realReturn, // реальная доходность (уже без инфляции), используется во всех расчётах ниже
     withdrawRate: (parseNum(document.getElementById(pid("pWithdrawRate")).value) || 4) / 100,
-    targetIncomeMonthly,
-    targetIncome: targetIncomeMonthly * 12,
   };
+  if (hasIncomeTarget) {
+    const targetIncomeMonthly = parseNum(document.getElementById(pid("pTargetIncomeMonthly")).value) || 0;
+    base.targetIncomeMonthly = targetIncomeMonthly;
+    base.targetIncome = targetIncomeMonthly * 12;
+    base.annualContribution = 0;
+    base.contributionYears = 0;
+  } else {
+    base.targetIncomeMonthly = 0;
+    base.targetIncome = null;
+    base.annualContribution = parseNum(document.getElementById(pid("pAnnualContribution")).value) || 0;
+    base.contributionYears = parseNum(document.getElementById(pid("pContributionYears")).value) || 0;
+  }
+  return base;
 }
 
 /**
@@ -407,30 +419,42 @@ function computePensionProjection() {
   for (let y = 1; y <= totalYears; y++) {
     const age = inputs.age + y;
     const isRetired = age > inputs.retireAge;
+    let withdrawal = 0;
+    let contribution = 0;
 
     if (!isRetired) {
-      capital = capital * (1 + inputs.returnRate);
-    } else {
-      capital = capital * (1 + inputs.returnRate) - annualWithdrawal;
+      // Фаза накопления: без целевого дохода (профиль Алены) сюда добавляются
+      // ежегодные пополнения — ровно inputs.contributionYears лет с текущего момента.
+      if (!hasIncomeTarget && y <= inputs.contributionYears) contribution = inputs.annualContribution;
+      capital = capital * (1 + inputs.returnRate) + contribution;
+    } else if (hasIncomeTarget) {
+      withdrawal = annualWithdrawal;
+      capital = capital * (1 + inputs.returnRate) - withdrawal;
       if (capital < 0) capital = 0;
+      if (capital <= 0 && depletedAtAge === null) depletedAtAge = age;
+    } else {
+      // Без целевого дохода: на пенсии выводим ровно ставку вывода от
+      // текущего капитала каждый год — капитал никогда не обнуляется
+      // математически, просто доход/мес меняется вместе с капиталом.
+      capital = capital * (1 + inputs.returnRate);
+      withdrawal = capital * inputs.withdrawRate;
+      capital -= withdrawal;
     }
-
-    if (capital <= 0 && depletedAtAge === null && isRetired) depletedAtAge = age;
 
     rows.push({
       year: startYear + y,
       age,
       phase: isRetired ? "Пенсия" : "Накопление",
-      contribution: 0,
-      withdrawal: isRetired ? annualWithdrawal : 0,
+      contribution,
+      withdrawal,
       capital,
-      monthlyIncome: isRetired ? annualWithdrawal / 12 : (capital * inputs.withdrawRate) / 12,
+      monthlyIncome: isRetired ? withdrawal / 12 : (capital * inputs.withdrawRate) / 12,
     });
   }
 
   const retirementRow = rows.find((r) => r.age === inputs.retireAge) || rows[rows.length - 1] || { capital: current };
   const projected = retirementRow.capital;
-  const requiredCapital = inputs.withdrawRate > 0 ? inputs.targetIncome / inputs.withdrawRate : null;
+  const requiredCapital = hasIncomeTarget && inputs.withdrawRate > 0 ? inputs.targetIncome / inputs.withdrawRate : null;
   const projectedMonthlyIncome = (projected * inputs.withdrawRate) / 12;
 
   return {
@@ -446,36 +470,46 @@ function renderPension() {
   document.getElementById(pid("pKpiCurrent")).textContent = fmtMoney(p.current);
   document.getElementById(pid("pKpiYears")).textContent = p.years;
   document.getElementById(pid("pKpiProjected")).textContent = fmtMoney(p.projected);
-  document.getElementById(pid("pKpiRequired")).textContent = p.requiredCapital === null ? "—" : fmtMoney(p.requiredCapital);
   const incomeEl = document.getElementById(pid("pKpiIncome"));
   incomeEl.textContent = fmtMoney(p.projectedMonthlyIncome);
-  incomeEl.className = "kpi-value " + signClass(p.requiredCapital !== null ? p.projected - p.requiredCapital : null);
 
-  if (p.requiredCapital !== null && p.requiredCapital > 0) {
-    const pct = Math.min(100, (p.projected / p.requiredCapital) * 100);
-    document.getElementById(pid("pGoalTrackFill")).style.width = pct + "%";
-    document.getElementById(pid("pGoalNote")).textContent = pct.toFixed(1) + "%";
-    const gap = Math.max(0, p.requiredCapital - p.projected);
-    document.getElementById(pid("pGoalGap")).textContent = gap > 0 ? fmtMoney(gap) : "цель достигнута";
-    const incomeGap = p.projectedMonthlyIncome - p.inputs.targetIncome / 12;
-    const incomeGapEl = document.getElementById(pid("pIncomeGap"));
-    incomeGapEl.textContent = (incomeGap >= 0 ? "+" : "") + fmtMoney(incomeGap);
-    incomeGapEl.className = "figure-value " + signClass(incomeGap);
+  if (hasIncomeTarget) {
+    document.getElementById(pid("pKpiRequired")).textContent = p.requiredCapital === null ? "—" : fmtMoney(p.requiredCapital);
+    incomeEl.className = "kpi-value " + signClass(p.requiredCapital !== null ? p.projected - p.requiredCapital : null);
+
+    if (p.requiredCapital !== null && p.requiredCapital > 0) {
+      const pct = Math.min(100, (p.projected / p.requiredCapital) * 100);
+      document.getElementById(pid("pGoalTrackFill")).style.width = pct + "%";
+      document.getElementById(pid("pGoalNote")).textContent = pct.toFixed(1) + "%";
+      const gap = Math.max(0, p.requiredCapital - p.projected);
+      document.getElementById(pid("pGoalGap")).textContent = gap > 0 ? fmtMoney(gap) : "цель достигнута";
+      const incomeGap = p.projectedMonthlyIncome - p.inputs.targetIncome / 12;
+      const incomeGapEl = document.getElementById(pid("pIncomeGap"));
+      incomeGapEl.textContent = (incomeGap >= 0 ? "+" : "") + fmtMoney(incomeGap);
+      incomeGapEl.className = "figure-value " + signClass(incomeGap);
+    } else {
+      document.getElementById(pid("pGoalTrackFill")).style.width = "0%";
+      document.getElementById(pid("pGoalNote")).textContent = "—";
+      document.getElementById(pid("pGoalGap")).textContent = "—";
+      document.getElementById(pid("pIncomeGap")).textContent = "—";
+    }
   } else {
-    document.getElementById(pid("pGoalTrackFill")).style.width = "0%";
-    document.getElementById(pid("pGoalNote")).textContent = "—";
-    document.getElementById(pid("pGoalGap")).textContent = "—";
-    document.getElementById(pid("pIncomeGap")).textContent = "—";
+    incomeEl.className = "kpi-value";
   }
 
   const depletionEl = document.getElementById(pid("pDepletionNote"));
   if (depletionEl) {
-    if (p.depletedAtAge !== null) {
-      depletionEl.textContent = `⚠ При текущих параметрах капитал заканчивается в ${p.depletedAtAge} лет (до ${p.endAge} не хватает)`;
-      depletionEl.className = "panel-note is-negative";
+    if (hasIncomeTarget) {
+      if (p.depletedAtAge !== null) {
+        depletionEl.textContent = `⚠ При текущих параметрах капитал заканчивается в ${p.depletedAtAge} лет (до ${p.endAge} не хватает)`;
+        depletionEl.className = "panel-note is-negative";
+      } else {
+        depletionEl.textContent = `Капитала хватает минимум до ${p.endAge} лет`;
+        depletionEl.className = "panel-note is-positive";
+      }
     } else {
-      depletionEl.textContent = `Капитала хватает минимум до ${p.endAge} лет`;
-      depletionEl.className = "panel-note is-positive";
+      depletionEl.textContent = `На пенсии вывод — ${(p.inputs.withdrawRate * 100).toFixed(1)}%/год от остатка; капитал не обнуляется, доход/мес меняется вместе с ним`;
+      depletionEl.className = "panel-note";
     }
   }
 
@@ -555,26 +589,75 @@ function renderPension() {
 }
 
 function wirePensionInputs() {
-  const ids = ["pAge", "pRetireAge", "pEndAge", "pNominalReturn", "pInflation", "pWithdrawRate", "pTargetIncomeMonthly"];
+  const ids = ["pAge", "pRetireAge", "pEndAge", "pNominalReturn", "pInflation", "pWithdrawRate"];
+  if (hasIncomeTarget) ids.push("pTargetIncomeMonthly");
+  else ids.push("pAnnualContribution", "pContributionYears");
+
   ids.forEach((id) => {
     document.getElementById(pid(id)).addEventListener("input", () => {
-      updateTargetIncomeYearlyDisplay();
+      if (hasIncomeTarget) updateTargetIncomeYearlyDisplay();
       if (derived.kpi) renderPension();
       renderWhatIf();
     });
   });
-  updateTargetIncomeYearlyDisplay();
+  if (hasIncomeTarget) updateTargetIncomeYearlyDisplay();
 
   ["wCapitalNow", "wSpendMonthly"].forEach((id) => {
     document.getElementById(pid(id)).addEventListener("input", renderWhatIf);
   });
   renderWhatIf();
+
+  if (hasStatePension) wireStatePensionInputs();
 }
 
 function updateTargetIncomeYearlyDisplay() {
   const monthly = parseNum(document.getElementById(pid("pTargetIncomeMonthly")).value) || 0;
   const yearlyEl = document.getElementById(pid("pTargetIncomeYearly"));
   if (yearlyEl) yearlyEl.textContent = `≈ ${fmtMoney(monthly * 12, "USD")}/год`;
+}
+
+/**
+ * Упрощённая оценка немецкой государственной пенсии (gesetzliche
+ * Rentenversicherung) по системе пенсионных баллов (Entgeltpunkte): за
+ * каждый год работы начисляется (ЗП_гросс / среднегодовая ЗП по стране)
+ * баллов, с потолком по предельной базе взносов. Сумма баллов × актуальная
+ * стоимость балла = месячная пенсия. Используются ориентировочные текущие
+ * значения (2024/2025) без индексации на будущие годы — упрощение, реальные
+ * цифры Deutsche Rentenversicherung уточняет ежегодно. Выплата возможна не
+ * раньше 63 лет ни при каких условиях — по умолчанию считаем от 67
+ * (стандартный пенсионный возраст, без вычетов за досрочный выход).
+ */
+const DE_PENSION_REF = {
+  averageAnnualSalary: 45358, // Durchschnittsentgelt, ориентир 2024
+  contributionCeiling: 90600, // Beitragsbemessungsgrenze (Запад), 2025
+  pensionPointValue: 39.32,   // aktueller Rentenwert, €/мес за 1 балл (с июля 2024)
+  payoutAge: 67,              // стандартный пенсионный возраст (Regelaltersgrenze)
+};
+
+function computeStatePension() {
+  const grossSalary = parseNum(document.getElementById(pid("deSalaryGross")).value) || 0;
+  const yearsWorked = parseNum(document.getElementById(pid("deYearsWorked")).value) || 0;
+  const cappedSalary = Math.min(grossSalary, DE_PENSION_REF.contributionCeiling);
+  const pointsPerYear = DE_PENSION_REF.averageAnnualSalary > 0 ? cappedSalary / DE_PENSION_REF.averageAnnualSalary : 0;
+  const totalPoints = pointsPerYear * yearsWorked;
+  const monthlyPension = totalPoints * DE_PENSION_REF.pensionPointValue;
+  return { grossSalary, yearsWorked, pointsPerYear, totalPoints, monthlyPension, payoutAge: DE_PENSION_REF.payoutAge };
+}
+
+function renderStatePension() {
+  const s = computeStatePension();
+  document.getElementById(pid("dePointsPerYear")).textContent = s.pointsPerYear.toFixed(3);
+  document.getElementById(pid("deTotalPoints")).textContent = s.totalPoints.toFixed(2);
+  document.getElementById(pid("deMonthlyPension")).textContent = fmtMoney(s.monthlyPension);
+  document.getElementById(pid("deYearlyPension")).textContent = fmtMoney(s.monthlyPension * 12);
+  document.getElementById(pid("dePayoutAge")).textContent = s.payoutAge + " лет";
+}
+
+function wireStatePensionInputs() {
+  ["deSalaryGross", "deYearsWorked"].forEach((id) => {
+    document.getElementById(pid(id)).addEventListener("input", renderStatePension);
+  });
+  renderStatePension();
 }
 
 /**
@@ -668,10 +751,16 @@ function computeAssetGrowthSeries(period) {
   coreTickers.forEach((ticker) => {
     const colIdx = header.indexOf(ticker);
     if (colIdx === -1) { series[ticker] = filtered.map(() => null); return; }
-    const firstPrice = parseNum(filtered[0][colIdx]);
-    series[ticker] = filtered.map((r) => {
+    // База — цена на дату ПЕРВОЙ реальной котировки этого тикера в выбранном
+    // периоде (а не на начало всего диапазона графика): так линия тикера
+    // корректно начинается с даты его покупки/появления в данных, даже если
+    // другие тикеры/сам портфель имеют историю до этой даты.
+    const firstIdx = filtered.findIndex((r) => parseNum(r[colIdx]) > 0);
+    const firstPrice = firstIdx === -1 ? 0 : parseNum(filtered[firstIdx][colIdx]);
+    series[ticker] = filtered.map((r, i) => {
+      if (firstPrice <= 0 || i < firstIdx) return null;
       const p = parseNum(r[colIdx]);
-      return firstPrice > 0 && p ? (p / firstPrice - 1) * 100 : null;
+      return p > 0 ? (p / firstPrice - 1) * 100 : null;
     });
   });
 
@@ -1855,6 +1944,8 @@ const mainProfile = createProfile({
   assetColors: CFG.ASSET_COLORS,
   hasGoalPanel: true,
   hasPlan: true,
+  hasIncomeTarget: true,
+  hasStatePension: false,
   indexTickers: [],
   benchmarkTicker: "VOO",
   nativeCurrency: "USD",
@@ -1869,6 +1960,8 @@ const alenaProfile = createProfile({
   assetColors: CFG.ASSET_COLORS_ALENA,
   hasGoalPanel: false,
   hasPlan: false,
+  hasIncomeTarget: false,
+  hasStatePension: true,
   indexTickers: ["CSPX"],
   benchmarkTicker: "CSPX",
   nativeCurrency: "EUR",

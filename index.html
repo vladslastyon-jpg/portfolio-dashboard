@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=13" />
+<link rel="stylesheet" href="style.css?v=14" />
 </head>
 <body>
 
@@ -44,10 +44,14 @@
 <main id="app" hidden>
 
 <nav class="tab-nav">
-  <button class="tab-btn is-active" data-tab="portfolio">Портфель</button>
-  <button class="tab-btn" data-tab="pension">Пенсия</button>
-  <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
-  <button class="tab-btn" data-tab="pensionAlena">Пенсия Алена</button>
+  <div class="tab-nav-group">
+    <button class="tab-btn is-active" data-tab="portfolio">Портфель</button>
+    <button class="tab-btn" data-tab="pension">Пенсия</button>
+  </div>
+  <div class="tab-nav-group">
+    <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
+    <button class="tab-btn" data-tab="pensionAlena">Пенсия Алена</button>
+  </div>
 </nav>
 
 <div id="tabPortfolio" class="tab-panel app-grid is-active" data-tab="portfolio">
@@ -519,11 +523,11 @@
     <div class="pension-inputs-grid">
       <label class="pension-input">
         <span class="figure-label">Текущий возраст</span>
-        <input type="number" id="bPAge" value="47" min="18" max="80" />
+        <input type="number" id="bPAge" value="42" min="18" max="80" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Возраст выхода на пенсию</span>
-        <input type="number" id="bPRetireAge" value="60" min="40" max="80" />
+        <input type="number" id="bPRetireAge" value="55" min="40" max="80" />
       </label>
       <label class="pension-input">
         <span class="figure-label">До какого возраста считать</span>
@@ -541,12 +545,13 @@
         <span class="figure-label">Ставка вывода на пенсии, %/год</span>
         <input type="number" id="bPWithdrawRate" value="4" min="1" max="10" step="0.25" />
       </label>
-      <label class="pension-input pension-input--wide">
-        <span class="figure-label">Целевой пассивный доход, $/мес (сегодняшними деньгами)</span>
-        <div class="pension-input-row">
-          <input type="number" id="bPTargetIncomeMonthly" value="3333" min="0" step="100" />
-          <span class="pension-input-computed" id="bPTargetIncomeYearly">≈ $40,000/год</span>
-        </div>
+      <label class="pension-input">
+        <span class="figure-label">Сумма ежегодного пополнения, $</span>
+        <input type="number" id="bPAnnualContribution" value="5000" min="0" step="500" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Кол-во лет пополнений</span>
+        <input type="number" id="bPContributionYears" value="13" min="0" max="60" />
       </label>
     </div>
   </section>
@@ -568,27 +573,8 @@
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Нужный капитал</div>
-      <div class="kpi-value" id="bPKpiRequired">—</div>
-    </div>
-    <div class="kpi-divider" aria-hidden="true"></div>
-    <div class="kpi-cell">
       <div class="kpi-label">Прогноз дохода/мес</div>
       <div class="kpi-value" id="bPKpiIncome">—</div>
-    </div>
-  </section>
-
-  <section class="panel pension-goal-panel" aria-label="Прогресс к целевому капиталу пенсии">
-    <div class="panel-header">
-      <h2>Прогресс к нужному капиталу</h2>
-      <span class="panel-note" id="bPGoalNote">—</span>
-    </div>
-    <div class="goal-track">
-      <div class="goal-track-fill" id="bPGoalTrackFill"></div>
-    </div>
-    <div class="goal-figures">
-      <div><span class="figure-label">Не хватает</span><span class="figure-value" id="bPGoalGap">—</span></div>
-      <div><span class="figure-label">Разница дохода vs цели, $/мес</span><span class="figure-value" id="bPIncomeGap">—</span></div>
     </div>
   </section>
 
@@ -656,6 +642,56 @@
     </div>
   </section>
 
+  <section class="panel state-pension-panel" aria-label="Государственная пенсия (Германия)">
+    <div class="panel-header">
+      <h2>Гос. пенсия (Германия)</h2>
+      <span class="panel-note">упрощённая оценка по системе пенсионных баллов (Entgeltpunkte)</span>
+    </div>
+    <div class="pension-inputs-grid">
+      <label class="pension-input">
+        <span class="figure-label">ЗП гросс, €/год</span>
+        <input type="number" id="bDeSalaryGross" value="70000" min="0" step="1000" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Кол-во лет работы (на этих условиях)</span>
+        <input type="number" id="bDeYearsWorked" value="15.5" min="0" max="60" step="0.5" />
+      </label>
+    </div>
+    <div class="pension-kpi-panel">
+      <div class="kpi-cell">
+        <div class="kpi-label">Баллов в год</div>
+        <div class="kpi-value" id="bDePointsPerYear">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Баллов всего</div>
+        <div class="kpi-value" id="bDeTotalPoints">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Пенсия, €/мес</div>
+        <div class="kpi-value" id="bDeMonthlyPension">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Пенсия, €/год</div>
+        <div class="kpi-value" id="bDeYearlyPension">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Выплата с возраста</div>
+        <div class="kpi-value" id="bDePayoutAge">—</div>
+      </div>
+    </div>
+    <p class="panel-note">
+      Оценка приблизительная: используются ориентировочные текущие значения среднегодовой
+      зарплаты по Германии и стоимости пенсионного балла (без индексации на будущие годы).
+      Немецкая государственная пенсия не может быть получена раньше 63 лет ни при каких
+      условиях — при выходе с работы в 55 лет накопленные баллы «замораживаются» и пенсия
+      начинает выплачиваться позже, с указанного возраста.
+    </p>
+  </section>
+
 </div>
 
 
@@ -670,6 +706,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
