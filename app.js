@@ -206,7 +206,7 @@ function onSignedIn() {
 }
 
 function createProfile(opts) {
-  const { prefix, label, spreadsheetId, sheets, coreTickers, assetColors, hasGoalPanel } = opts;
+  const { prefix, label, spreadsheetId, sheets, coreTickers, assetColors, hasGoalPanel, hasPlan, indexTickers, benchmarkTicker } = opts;
 
   function pid(base) {
     if (base === "app" || base === "refreshBtn") return base;
@@ -639,7 +639,7 @@ function computeAssetGrowthSeries(period) {
 
   const portfolio = computePortfolioReturnSeries(filtered.map((r) => parseSheetDate(r[0])));
 
-  return { labels, series, portfolio, benchmark: series["VOO"] || [] };
+  return { labels, series, portfolio, benchmark: series[benchmarkTicker] || [] };
 }
 
 /**
@@ -1011,6 +1011,7 @@ function parsePortfolio500kSheet() {
 }
 
 function computePlanActual() {
+  if (!hasPlan) { derived.planActual = null; return; }
   derived.planActual = parsePortfolio500kSheet();
 }
 
@@ -1028,7 +1029,34 @@ function getCoreTickers() {
     .filter((t) => t !== "Cash");
 }
 
+/**
+ * Без плана (hasPlan=false) строим "Структуру портфеля" напрямую из
+ * «Актуальный Портфель» — двумя группами, без обращения к «портфель 500к»:
+ * 1) indexTickers (у Алены — CSPX) → группа "I. Глобальное Ядро (S&P 500)"
+ * 2) всё остальное (включая Cash) → "II. Индивидуальные Акции"
+ * Названия групп специально совпадают по ключевым словам с
+ * getGroupBaseColor(), чтобы получить те же фирменные цвета (фиолетовый/
+ * синий), что и на вкладке с планом.
+ */
+function computeAllocationNoPlan() {
+  const rows = derived.actualPortfolio?.rows || [];
+  const totalValue = rows.reduce((s, r) => s + (r.value || 0), 0);
+  const alloc = [];
+  rows.forEach((r) => {
+    if (!r.value) return;
+    const group = indexTickers.includes(r.ticker) ? "I. Глобальное Ядро (S&P 500)" : "II. Индивидуальные Акции";
+    alloc.push({
+      ticker: r.ticker,
+      group,
+      value: r.value,
+      weight: totalValue > 0 ? r.value / totalValue : 0,
+    });
+  });
+  derived.allocation = alloc;
+}
+
 function computeAllocation() {
+  if (!hasPlan) { computeAllocationNoPlan(); return; }
   const groups = derived.planActual?.groups || [];
   const totalValue = groups.reduce((s, g) => s + (g.factUSD || 0), 0);
 
@@ -1153,7 +1181,7 @@ function renderAll() {
   renderAssetsReturnChart();
   renderMonthGrid();
   renderTickerDetailTable();
-  renderPlanActual();
+  if (hasPlan) renderPlanActual();
   renderPension();
 }
 
@@ -1213,7 +1241,7 @@ function renderAssetsReturnChart() {
     });
   });
   datasets.push({
-    label: "S&P 500 (ориентир, по VOO)",
+    label: `S&P 500 (ориентир, по ${benchmarkTicker})`,
     data: data.benchmark,
     borderColor: "#7C8798",
     backgroundColor: "transparent",
@@ -1777,6 +1805,9 @@ const mainProfile = createProfile({
   coreTickers: CFG.CORE_TICKERS,
   assetColors: CFG.ASSET_COLORS,
   hasGoalPanel: true,
+  hasPlan: true,
+  indexTickers: [],
+  benchmarkTicker: "VOO",
 });
 
 const alenaProfile = createProfile({
@@ -1787,6 +1818,9 @@ const alenaProfile = createProfile({
   coreTickers: CFG.CORE_TICKERS_ALENA,
   assetColors: CFG.ASSET_COLORS_ALENA,
   hasGoalPanel: false,
+  hasPlan: false,
+  indexTickers: ["CSPX"],
+  benchmarkTicker: "CSPX",
 });
 
 const PROFILES = [mainProfile, alenaProfile];

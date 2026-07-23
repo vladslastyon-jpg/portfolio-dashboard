@@ -368,6 +368,9 @@ body {
 /* Chart panels */
 .chart-panel { grid-column: span 12; }
 .allocation-panel { grid-column: span 6; }
+.allocation-panel--full { grid-column: span 12; }
+.allocation-panel--full .allocation-body { justify-content: flex-start; gap: 60px; }
+.allocation-panel--full .alloc-legend { max-width: 500px; }
 .transactions-panel { grid-column: span 12; }
 .returns-compare-panel { grid-column: span 12; }
 .monthly-grid-panel { grid-column: span 12; }

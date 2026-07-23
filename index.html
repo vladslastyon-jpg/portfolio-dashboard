@@ -418,7 +418,7 @@
   </section>
 
   <!-- 3.4 ALLOCATION (nested donut: groups inner ring, tickers outer ring) -->
-  <section class="panel allocation-panel" aria-label="Структура портфеля">
+  <section class="panel allocation-panel allocation-panel--full" aria-label="Структура портфеля">
     <div class="panel-header">
       <h2>Структура портфеля</h2>
       <span class="panel-note">наведите на сегмент для деталей</span>
@@ -427,16 +427,6 @@
       <div class="donut-wrap donut-wrap--nested"><canvas id="bAllocationChart"></canvas></div>
       <div class="alloc-legend" id="bAllocationBody"></div>
     </div>
-  </section>
-
-  <!-- Plan vs actual, nested by group -->
-  <section class="panel plan-actual-panel" aria-label="План против факта по группам и активам">
-    <div class="panel-header">
-      <h2>План против факта</h2>
-      <span class="panel-note">наведите на полосу для цифр</span>
-    </div>
-    <div id="bPlanActualBody"></div>
-    <div id="bPlanActualTooltip" class="plan-tooltip" hidden></div>
   </section>
 
   <!-- 3.6 ASSET RETURN COMPARISON -->
