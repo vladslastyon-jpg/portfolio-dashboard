@@ -214,6 +214,35 @@ function createProfile(opts) {
     return prefix + base.charAt(0).toUpperCase() + base.slice(1);
   }
 
+  // Её портфель ведётся в EUR "от природы" (Транзакции/Asset_History уже в
+  // евро) — в отличие от твоего (нативно в USD). Поэтому для профиля с
+  // nativeCurrency === "EUR" переопределяем форматирование локально (внутри
+  // этого замыкания): всегда показываем € и НИКОГДА не делим/умножаем на
+  // eurUsdRate — общий переключатель USD/EUR в шапке сайта на её вкладку не
+  // влияет, т.к. эти локальные версии функций затеняют глобальные (JS
+  // разрешает вызовы вроде fmtMoney(...) внутри фабрики в первую очередь на
+  // эти локальные, если они определены). Для твоего профиля (nativeCurrency
+  // === "USD") ничего не переопределяем — там всё работает как раньше.
+  let fmtMoney, fmtMoneyNoDecimals;
+  if (opts.nativeCurrency === "EUR") {
+    fmtMoney = function (value) {
+      if (value === null || value === undefined || isNaN(value)) return "—";
+      const sign = value < 0 ? "-" : "";
+      return `${sign}€${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+    fmtMoneyNoDecimals = function (value) {
+      if (value === null || value === undefined || isNaN(value)) return "—";
+      const sign = value < 0 ? "-" : "";
+      return `${sign}€${Math.round(Math.abs(value)).toLocaleString("en-US")}`;
+    };
+  } else {
+    // Твой профиль (USD) — делегируем на исходную глобальную логику
+    // (учитывает переключатель USD/EUR в шапке как раньше), поведение не
+    // меняется.
+    fmtMoney = window.fmtMoney;
+    fmtMoneyNoDecimals = window.fmtMoneyNoDecimals;
+  }
+
   // сырые данные из таблицы
   const raw = {
     portfolioSummary: null,
@@ -679,13 +708,22 @@ function computePortfolioGrowthIndexDaily() {
   const dv = derived.dailyValue || [];
   if (dv.length < 2) return [];
   const flows = computeDailyCashflowMap();
+  // Минимальная "осмысленная" база для расчёта дневного %. Пока портфель
+  // стоит меньше этого порога (например, только крошечные подарочные акции
+  // до первой реальной покупки), деление на такую почти нулевую базу даёт
+  // математически корректный, но бессмысленно огромный % (сотни процентов
+  // за один день) — который потом навсегда "застревает" в накопительном
+  // индексе и выглядит как обвал/скачок на графике. Пока vPrev меньше
+  // порога, просто не начисляем % в этот день (ret=0) — по сути это ещё
+  // "затравочная" фаза, а не реальная доходность.
+  const MIN_MEANINGFUL_BASE = 100;
   let cum = 1;
   const points = [{ date: parseSheetDate(dv[0].date), cum }];
   for (let i = 1; i < dv.length; i++) {
     const vPrev = dv[i - 1].value;
     const vCur = dv[i].value;
     const flow = flows[toISODateKey(dv[i].date)] || 0;
-    const ret = vPrev > 0 ? (vCur - vPrev - flow) / vPrev : 0;
+    const ret = vPrev > MIN_MEANINGFUL_BASE ? (vCur - vPrev - flow) / vPrev : 0;
     cum *= (1 + ret);
     points.push({ date: parseSheetDate(dv[i].date), cum });
   }
@@ -1808,6 +1846,7 @@ const mainProfile = createProfile({
   hasPlan: true,
   indexTickers: [],
   benchmarkTicker: "VOO",
+  nativeCurrency: "USD",
 });
 
 const alenaProfile = createProfile({
@@ -1821,6 +1860,7 @@ const alenaProfile = createProfile({
   hasPlan: false,
   indexTickers: ["CSPX"],
   benchmarkTicker: "CSPX",
+  nativeCurrency: "EUR",
 });
 
 const PROFILES = [mainProfile, alenaProfile];
