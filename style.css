@@ -427,6 +427,18 @@ body {
   gap: 12px 16px;
 }
 .pension-inputs-grid--compact .figure-label { min-height: 28px; font-size: 12px; }
+.pension-inputs-grid + .params-block-label { margin-top: 18px; }
+.params-block-label {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.figure-hint { color: var(--text-faint); font-weight: 400; text-transform: none; letter-spacing: normal; }
 .pension-input {
   display: flex;
   flex-direction: column;
