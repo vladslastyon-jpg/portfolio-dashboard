@@ -2240,6 +2240,264 @@ function wireRealEstateInputs() {
   renderRealEstate("equity");
 }
 
+/* -------------------------- Семейный бюджет (раздел "Бюджет", независим от Google Sheets) -------------------------- */
+
+function bgEsc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/**
+ * Стартовые данные — перенесены из текущей реальной таблицы пользователя
+ * (budget_concept_v2.html) по формуле миграции из ТЗ: там, где у статьи с
+ * подстатьями было одно поле "vlad" на всю статью, взнос Влада "каскадом"
+ * распределён по подстатьям по порядку (первая подстатья получает вклад
+ * Влада первой, остаток — Алене) — сохраняет прежний общий Влад/Алена
+ * баланс категории. Итог expenseTotal = 6760€ совпадает с контрольным
+ * числом из ТЗ, что подтверждает корректность переноса.
+ */
+let bgIncome = [
+  { name: "ЗП", vlad: 1600, alena: 3700 },
+  { name: "Сдача квартиры", vlad: 0, alena: 1315.79 },
+  { name: "Киндер гельд", vlad: 0, alena: 500 },
+];
+
+let bgExpenseGroups = [
+  { name: "Жильё", categories: [
+    { name: "Аренда квартиры", vlad: 0, alena: 2800, subrows: [] },
+    { name: "Квартира родителей", vlad: 0, alena: 530, subrows: [] },
+    { name: "Дом затраты", vlad: 0, alena: 0, subrows: [
+      { name: "Електрика", vlad: 0, alena: 100 },
+      { name: "Телефон", vlad: 0, alena: 135 },
+      { name: "дом. Химия", vlad: 0, alena: 50 },
+    ] },
+    { name: "Комунал (Украина)", vlad: 0, alena: 0, subrows: [
+      { name: "Дом", vlad: 100, alena: 50 },
+      { name: "Интернет (дом)", vlad: 0, alena: 5 },
+    ] },
+    { name: "Кредит", vlad: 0, alena: 250, subrows: [] },
+  ] },
+  { name: "Повседневные", categories: [
+    { name: "Питание", vlad: 0, alena: 800, subrows: [] },
+    { name: "Отдых", vlad: 400, alena: 0, subrows: [] },
+  ] },
+  { name: "Транспорт", categories: [
+    { name: "Авто", vlad: 0, alena: 0, subrows: [
+      { name: "Бензин", vlad: 200, alena: 0 },
+      { name: "Страховка", vlad: 0, alena: 75 },
+      { name: "Ремонт", vlad: 0, alena: 0 },
+    ] },
+  ] },
+  { name: "Дети", categories: [
+    { name: "Мила", vlad: 0, alena: 0, subrows: [
+      { name: "Гимнастика", vlad: 0, alena: 70 },
+      { name: "Стоматолог", vlad: 0, alena: 30 },
+    ] },
+    { name: "Сеня", vlad: 0, alena: 0, subrows: [
+      { name: "Стоматолог", vlad: 0, alena: 40 },
+      { name: "Линзы", vlad: 0, alena: 20 },
+    ] },
+  ] },
+  { name: "Личное", categories: [
+    { name: "Алена", vlad: 0, alena: 0, subrows: [
+      { name: "Спорт", vlad: 0, alena: 40 },
+      { name: "Косметика", vlad: 0, alena: 50 },
+    ] },
+    { name: "Влад", vlad: 0, alena: 0, subrows: [
+      { name: "Спорт", vlad: 0, alena: 40 },
+    ] },
+  ] },
+  { name: "Прочее и резерв", categories: [
+    { name: "Одежда", vlad: 200, alena: 0, subrows: [] },
+    { name: "Другое", vlad: 0, alena: 0, subrows: [
+      { name: "Парковка ТЦ", vlad: 50, alena: 0 },
+      { name: "Проездной детей", vlad: 75, alena: 25 },
+      { name: "Страховка (зубы)", vlad: 0, alena: 25 },
+    ] },
+    { name: "Резерв", vlad: 600, alena: 0, subrows: [] },
+  ] },
+];
+
+function bgLeafTotal(leaf) { return (parseFloat(leaf.vlad) || 0) + (parseFloat(leaf.alena) || 0); }
+
+function bgCategoryTotal(cat) {
+  return cat.subrows.length > 0 ? cat.subrows.reduce((s, r) => s + bgLeafTotal(r), 0) : bgLeafTotal(cat);
+}
+function bgCategoryVlad(cat) {
+  return cat.subrows.length > 0 ? cat.subrows.reduce((s, r) => s + (parseFloat(r.vlad) || 0), 0) : (parseFloat(cat.vlad) || 0);
+}
+function bgCategoryAlena(cat) {
+  return cat.subrows.length > 0 ? cat.subrows.reduce((s, r) => s + (parseFloat(r.alena) || 0), 0) : (parseFloat(cat.alena) || 0);
+}
+function bgGroupTotal(g) { return g.categories.reduce((s, c) => s + bgCategoryTotal(c), 0); }
+function bgGroupVlad(g) { return g.categories.reduce((s, c) => s + bgCategoryVlad(c), 0); }
+function bgGroupAlena(g) { return g.categories.reduce((s, c) => s + bgCategoryAlena(c), 0); }
+
+function bgRenderIncome() {
+  const body = document.getElementById("bgIncomeBody");
+  body.innerHTML = "";
+  bgIncome.forEach((row, i) => {
+    const total = bgLeafTotal(row);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${bgEsc(row.name)}" /></td>
+      <td class="num"><input type="number" step="0.01" value="${row.vlad}" /></td>
+      <td class="num"><input type="number" step="0.01" value="${row.alena}" /></td>
+      <td class="num readonly">${fmtEUR(total)}</td>
+      <td><button class="budget-rm-btn" title="Удалить">✕</button></td>`;
+    const [nameEl, vladEl, alenaEl] = tr.querySelectorAll("input");
+    nameEl.addEventListener("input", () => { row.name = nameEl.value; });
+    vladEl.addEventListener("change", () => { row.vlad = parseNum(vladEl.value); bgRenderIncome(); bgRecalc(); });
+    alenaEl.addEventListener("change", () => { row.alena = parseNum(alenaEl.value); bgRenderIncome(); bgRecalc(); });
+    tr.querySelector(".budget-rm-btn").addEventListener("click", () => { bgIncome.splice(i, 1); bgRenderIncome(); bgRecalc(); });
+    body.appendChild(tr);
+  });
+}
+
+function bgAddIncomeRow() { bgIncome.push({ name: "Новая статья", vlad: 0, alena: 0 }); bgRenderIncome(); bgRecalc(); }
+
+function bgRenderExpenses() {
+  const container = document.getElementById("bgExpenseGroups");
+  container.innerHTML = "";
+  bgExpenseGroups.forEach((group, gi) => {
+    const groupTotal = bgGroupTotal(group);
+
+    const header = document.createElement("div");
+    header.className = "budget-group-header";
+    header.innerHTML = `
+      <input type="text" value="${bgEsc(group.name)}" />
+      <span class="budget-group-total">${fmtEUR(groupTotal)}</span>
+      <button class="budget-rm-group-btn">удалить группу</button>`;
+    const groupNameEl = header.querySelector("input");
+    groupNameEl.addEventListener("input", () => { group.name = groupNameEl.value; });
+    header.querySelector(".budget-rm-group-btn").addEventListener("click", () => {
+      if (confirm(`Удалить всю группу «${group.name}»?`)) { bgExpenseGroups.splice(gi, 1); bgRenderExpenses(); bgRecalc(); }
+    });
+    container.appendChild(header);
+
+    const table = document.createElement("table");
+    table.className = "ledger-table budget-table";
+    table.innerHTML = `
+      <thead><tr>
+        <th>Статья</th><th class="num" style="width:100px">Сумма, €</th>
+        <th class="num" style="width:95px">Влад, €</th><th class="num" style="width:95px">Алена, €</th>
+        <th style="width:26px"></th>
+      </tr></thead>
+      <tbody></tbody>`;
+    container.appendChild(table);
+    const tbody = table.querySelector("tbody");
+
+    group.categories.forEach((cat, ci) => {
+      const hasSub = cat.subrows.length > 0;
+      const total = bgCategoryTotal(cat);
+      const vlad = bgCategoryVlad(cat);
+      const alena = bgCategoryAlena(cat);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="text" value="${bgEsc(cat.name)}" /></td>
+        <td class="num readonly">${fmtEUR(total)}${hasSub ? '<span class="auto-tag">АВТО</span>' : ""}</td>
+        <td class="num"><input type="number" step="0.01" value="${vlad}" ${hasSub ? "disabled" : ""} /></td>
+        <td class="num"><input type="number" step="0.01" value="${alena}" ${hasSub ? "disabled" : ""} /></td>
+        <td><button class="budget-rm-btn" title="Удалить статью">✕</button></td>`;
+      const catNameEl = tr.querySelector('input[type="text"]');
+      const [catVladEl, catAlenaEl] = tr.querySelectorAll('input[type="number"]');
+      catNameEl.addEventListener("input", () => { cat.name = catNameEl.value; });
+      if (!hasSub) {
+        catVladEl.addEventListener("change", () => { cat.vlad = parseNum(catVladEl.value); bgRenderExpenses(); bgRecalc(); });
+        catAlenaEl.addEventListener("change", () => { cat.alena = parseNum(catAlenaEl.value); bgRenderExpenses(); bgRecalc(); });
+      }
+      tr.querySelector(".budget-rm-btn").addEventListener("click", () => {
+        group.categories.splice(ci, 1); bgRenderExpenses(); bgRecalc();
+      });
+      tbody.appendChild(tr);
+
+      cat.subrows.forEach((sub, si) => {
+        const subTotal = bgLeafTotal(sub);
+        const subtr = document.createElement("tr");
+        subtr.className = "budget-subrow";
+        subtr.innerHTML = `
+          <td><input type="text" value="${bgEsc(sub.name)}" /></td>
+          <td class="num readonly">${fmtEUR(subTotal)}</td>
+          <td class="num"><input type="number" step="0.01" value="${sub.vlad}" /></td>
+          <td class="num"><input type="number" step="0.01" value="${sub.alena}" /></td>
+          <td><button class="budget-rm-btn" title="Удалить подстатью">✕</button></td>`;
+        const subNameEl = subtr.querySelector('input[type="text"]');
+        const [subVladEl, subAlenaEl] = subtr.querySelectorAll('input[type="number"]');
+        subNameEl.addEventListener("input", () => { sub.name = subNameEl.value; });
+        subVladEl.addEventListener("change", () => { sub.vlad = parseNum(subVladEl.value); bgRenderExpenses(); bgRecalc(); });
+        subAlenaEl.addEventListener("change", () => { sub.alena = parseNum(subAlenaEl.value); bgRenderExpenses(); bgRecalc(); });
+        subtr.querySelector(".budget-rm-btn").addEventListener("click", () => {
+          cat.subrows.splice(si, 1); bgRenderExpenses(); bgRecalc();
+        });
+        tbody.appendChild(subtr);
+      });
+
+      const addSubTr = document.createElement("tr");
+      addSubTr.innerHTML = `<td colspan="5"><button class="add-row-btn add-sub-btn">+ подстатья в «${bgEsc(cat.name)}»</button></td>`;
+      addSubTr.querySelector("button").addEventListener("click", () => {
+        cat.subrows.push({ name: "Новая подстатья", vlad: 0, alena: 0 });
+        bgRenderExpenses(); bgRecalc();
+      });
+      tbody.appendChild(addSubTr);
+    });
+
+    const addCatBtn = document.createElement("button");
+    addCatBtn.className = "add-row-btn";
+    addCatBtn.textContent = `+ статья в «${group.name}»`;
+    addCatBtn.addEventListener("click", () => {
+      group.categories.push({ name: "Новая статья", vlad: 0, alena: 0, subrows: [] });
+      bgRenderExpenses(); bgRecalc();
+    });
+    container.appendChild(addCatBtn);
+  });
+}
+
+function bgAddGroup() {
+  bgExpenseGroups.push({ name: "Новая группа", categories: [{ name: "Статья", vlad: 0, alena: 0, subrows: [] }] });
+  bgRenderExpenses(); bgRecalc();
+}
+
+function bgRecalc() {
+  const incomeTotal = bgIncome.reduce((s, r) => s + bgLeafTotal(r), 0);
+  const vladIncome = bgIncome.reduce((s, r) => s + (parseFloat(r.vlad) || 0), 0);
+  const alenaIncome = bgIncome.reduce((s, r) => s + (parseFloat(r.alena) || 0), 0);
+
+  let expenseTotal = 0, vladExpense = 0, alenaExpense = 0, reserve = 0;
+  bgExpenseGroups.forEach((g) => {
+    g.categories.forEach((c) => {
+      const total = bgCategoryTotal(c);
+      expenseTotal += total;
+      vladExpense += bgCategoryVlad(c);
+      alenaExpense += bgCategoryAlena(c);
+      if (c.name.trim().toLowerCase() === "резерв") reserve += total;
+    });
+  });
+
+  const balance = incomeTotal - expenseTotal;
+  document.getElementById("bgIncomeTotalTitle").textContent = fmtEUR(incomeTotal);
+  document.getElementById("bgKpiIncome").textContent = fmtEUR(incomeTotal);
+  document.getElementById("bgKpiExpense").textContent = fmtEUR(expenseTotal);
+  document.getElementById("bgKpiReserve").textContent = fmtEUR(reserve);
+  const balEl = document.getElementById("bgKpiBalance");
+  balEl.textContent = fmtEUR(balance);
+  balEl.className = "kpi-value " + signClass(balance);
+
+  document.getElementById("bgVladIncome").textContent = fmtEUR(vladIncome);
+  document.getElementById("bgVladExpense").textContent = fmtEUR(vladExpense);
+  document.getElementById("bgVladNet").textContent = fmtEUR(vladIncome - vladExpense);
+  document.getElementById("bgAlenaIncome").textContent = fmtEUR(alenaIncome);
+  document.getElementById("bgAlenaExpense").textContent = fmtEUR(alenaExpense);
+  document.getElementById("bgAlenaNet").textContent = fmtEUR(alenaIncome - alenaExpense);
+}
+
+function wireBudgetInputs() {
+  document.getElementById("bgAddIncomeBtn").addEventListener("click", bgAddIncomeRow);
+  document.getElementById("bgAddGroupBtn").addEventListener("click", bgAddGroup);
+  bgRenderIncome();
+  bgRenderExpenses();
+  bgRecalc();
+}
+
 /* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -2274,6 +2532,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   PROFILES.forEach((p) => p.wireInteractions());
   wireRealEstateInputs();
+  wireBudgetInputs();
   syncCurrencyButtons();
 
   initGis();

@@ -537,6 +537,105 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid var(--bg-deep);
 }
 
+/* ---------------- Family budget calculator ---------------- */
+.budget-kpi-panel { grid-column: span 12; display: flex; align-items: stretch; }
+.budget-kpi-panel .kpi-cell { flex: 1; padding: 4px 20px; }
+.budget-kpi-panel .kpi-cell:first-child { padding-left: 4px; }
+
+.budget-person-panel { grid-column: span 12; display: flex; gap: 16px; }
+.budget-person-card {
+  flex: 1;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.budget-person-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-brass);
+  margin-bottom: 8px;
+}
+.budget-person-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.budget-person-line span:first-child { font-family: var(--font-body); color: var(--text-muted); }
+.budget-person-line--net { border-top: 1px solid var(--hairline-soft); margin-top: 6px; padding-top: 8px; font-weight: 600; }
+
+.budget-table-panel { grid-column: span 12; }
+.budget-table input[type="text"] {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 4px 2px;
+  border-radius: 3px;
+}
+.budget-table input[type="text"]:focus { background: var(--surface-raised); outline: none; }
+.budget-table input[type="number"] {
+  width: 90px;
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  text-align: right;
+}
+.budget-table input[type="number"]:focus { outline: none; border-color: var(--accent-brass-dim); }
+.budget-table input[type="number"]:disabled { background: transparent; color: var(--text-faint); border-color: transparent; }
+.budget-table .auto-tag {
+  font-size: 9px;
+  color: var(--accent-brass);
+  border: 1px solid var(--accent-brass-dim);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.budget-table tr.budget-subrow { color: var(--text-muted); }
+.budget-table tr.budget-subrow td:first-child { padding-left: 26px; }
+.budget-rm-btn { border: none; background: none; color: var(--negative); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 6px; }
+.budget-rm-btn:hover { background: rgba(194, 92, 80, 0.15); border-radius: 3px; }
+.budget-rm-group-btn { border: none; background: none; color: var(--negative); cursor: pointer; font-size: 12px; padding: 2px 6px; }
+.budget-rm-group-btn:hover { text-decoration: underline; }
+.add-row-btn {
+  border: 1px dashed var(--hairline);
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin: 6px 6px 4px 0;
+}
+.add-row-btn:hover { background: var(--surface-raised); color: var(--text-primary); }
+.add-sub-btn { font-size: 11px; padding: 3px 8px; }
+.budget-group-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 22px 0 8px; }
+.budget-group-header:first-child { margin-top: 0; }
+.budget-group-header input[type="text"] {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  border: none;
+  background: transparent;
+  flex: 1;
+}
+.budget-group-total { font-family: var(--font-mono); font-size: 14px; color: var(--text-muted); white-space: nowrap; }
+
 .re-milestone-panel { grid-column: span 12; }
 .re-milestone-panel .pension-kpi-panel { margin-bottom: 16px; }
 .re-whatif-combined-panel { grid-column: span 12; }

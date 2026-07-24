@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=18" />
+<link rel="stylesheet" href="style.css?v=19" />
 </head>
 <body>
 
@@ -50,6 +50,7 @@
   </div>
   <div class="tab-nav-group">
     <button class="tab-btn" data-tab="realEstate">Недвижимость</button>
+    <button class="tab-btn" data-tab="budget">Бюджет</button>
   </div>
   <div class="tab-nav-group">
     <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
@@ -855,6 +856,69 @@
 
 </div>
 
+<div id="tabBudget" class="tab-panel app-grid" data-tab="budget" hidden>
+
+  <section class="panel budget-kpi-panel" aria-label="Итоги бюджета">
+    <div class="kpi-cell">
+      <div class="kpi-label">Доход</div>
+      <div class="kpi-value" id="bgKpiIncome">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Расход</div>
+      <div class="kpi-value" id="bgKpiExpense">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Сальдо</div>
+      <div class="kpi-value" id="bgKpiBalance">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Резерв (в расходах)</div>
+      <div class="kpi-value" id="bgKpiReserve">—</div>
+    </div>
+  </section>
+
+  <section class="panel budget-person-panel" aria-label="Влад и Алена">
+    <div class="budget-person-card budget-person-card--vlad">
+      <div class="budget-person-title">Влад</div>
+      <div class="budget-person-line"><span>Доход</span><span id="bgVladIncome">—</span></div>
+      <div class="budget-person-line"><span>Платит расходов</span><span id="bgVladExpense">—</span></div>
+      <div class="budget-person-line budget-person-line--net"><span>Остаток у Влада</span><span id="bgVladNet">—</span></div>
+    </div>
+    <div class="budget-person-card budget-person-card--alena">
+      <div class="budget-person-title">Алена</div>
+      <div class="budget-person-line"><span>Доход</span><span id="bgAlenaIncome">—</span></div>
+      <div class="budget-person-line"><span>Платит расходов</span><span id="bgAlenaExpense">—</span></div>
+      <div class="budget-person-line budget-person-line--net"><span>Остаток у Алены</span><span id="bgAlenaNet">—</span></div>
+    </div>
+  </section>
+
+  <section class="panel budget-table-panel" aria-label="Доход">
+    <div class="panel-header">
+      <h2>Доход</h2>
+      <span class="panel-note" id="bgIncomeTotalTitle">—</span>
+    </div>
+    <table class="ledger-table budget-table">
+      <thead>
+        <tr><th>Статья</th><th class="num">Влад, €</th><th class="num">Алена, €</th><th class="num">Итого</th><th></th></tr>
+      </thead>
+      <tbody id="bgIncomeBody"></tbody>
+    </table>
+    <button class="add-row-btn" id="bgAddIncomeBtn">+ статья дохода</button>
+  </section>
+
+  <section class="panel budget-table-panel" aria-label="Расходы">
+    <div class="panel-header">
+      <h2>Расходы</h2>
+    </div>
+    <div id="bgExpenseGroups"></div>
+    <button class="add-row-btn" id="bgAddGroupBtn">+ добавить группу расходов</button>
+  </section>
+
+</div>
+
 </main>
 
 <div id="signedOutHint" class="signed-out-hint">
@@ -866,6 +930,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
