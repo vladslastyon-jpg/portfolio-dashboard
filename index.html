@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=15" />
+<link rel="stylesheet" href="style.css?v=16" />
 </head>
 <body>
 
@@ -523,18 +523,22 @@
       <h2>Параметры расчёта</h2>
       <span class="panel-note">меняй значения — всё пересчитается сразу</span>
     </div>
-    <div class="pension-inputs-grid">
+    <div class="pension-inputs-grid pension-inputs-grid--compact">
       <label class="pension-input">
         <span class="figure-label">Текущий возраст</span>
         <input type="number" id="bPAge" value="42" min="18" max="80" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Возраст выхода на пенсию</span>
-        <input type="number" id="bPRetireAge" value="55" min="40" max="80" />
+        <input type="number" id="bPRetireAge" value="60" min="40" max="80" />
       </label>
       <label class="pension-input">
         <span class="figure-label">До какого возраста считать</span>
         <input type="number" id="bPEndAge" value="100" min="65" max="110" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Кол-во лет работы (гос. + приват. пенсия)</span>
+        <input type="number" id="bDeYearsWorked" value="20.5" min="0" max="60" step="0.5" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Номинальная доходность, %/год</span>
@@ -549,14 +553,74 @@
         <input type="number" id="bPWithdrawRate" value="4" min="1" max="10" step="0.25" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Сумма ежегодного пополнения, $</span>
+        <span class="figure-label">Пополнение инвестиций, €/год</span>
         <input type="number" id="bPAnnualContribution" value="5000" min="0" step="500" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Кол-во лет пополнений</span>
-        <input type="number" id="bPContributionYears" value="13" min="0" max="60" />
+        <span class="figure-label">Кол-во лет пополнений инвестиций</span>
+        <input type="number" id="bPContributionYears" value="18" min="0" max="60" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">ЗП гросс (гос. пенсия), €/год</span>
+        <input type="number" id="bDeSalaryGross" value="70000" min="0" step="1000" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Приват. пенсия — взнос сотрудник, €/мес</span>
+        <input type="number" id="bPpEmployeeContrib" value="200" min="0" step="10" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Приват. пенсия — взнос работодатель, €/мес</span>
+        <input type="number" id="bPpEmployerContrib" value="30" min="0" step="10" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Приват. пенсия — договор, лет</span>
+        <input type="number" id="bPpContractYears" value="25" min="1" max="60" step="1" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Приват. пенсия при полном сроке, €/мес</span>
+        <input type="number" id="bPpFullPayout" value="400" min="0" step="10" />
       </label>
     </div>
+  </section>
+
+  <section class="panel re-milestone-panel" aria-label="Базовые вводные и доход по вехам">
+    <div class="panel-header">
+      <h2>Базовые вводные</h2>
+      <span class="panel-note">три источника дохода на пенсии: инвестиции, гос. пенсия, приват. пенсия</span>
+    </div>
+    <div class="pension-kpi-panel">
+      <div class="kpi-cell">
+        <div class="kpi-label">Возраст сейчас</div>
+        <div class="kpi-value" id="bMsAgeNow">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Пенсия в</div>
+        <div class="kpi-value" id="bMsRetireAge">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Лет до пенсии</div>
+        <div class="kpi-value" id="bMsYearsToRetire">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Начало изъятия инвест. денег</div>
+        <div class="kpi-value" id="bMsWithdrawDate">—</div>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="bMilestoneTable">
+        <thead>
+          <tr><th>Возраст</th><th class="num">Инвестиции, €/мес</th><th class="num">Приват. пенсия, €/мес</th><th class="num">Гос. пенсия, €/мес</th><th class="num">Итого, €/мес</th></tr>
+        </thead>
+        <tbody id="bMilestoneTableBody"></tbody>
+      </table>
+    </div>
+    <p class="panel-note">
+      Приват. пенсия предполагается выплачиваемой с возраста выхода на пенсию; гос. пенсия —
+      не раньше 67 лет (см. пояснение ниже). До этих возрастов соответствующий источник — 0.
+    </p>
   </section>
 
   <section class="panel pension-kpi-panel" aria-label="Итоги расчёта пенсии">
@@ -576,7 +640,7 @@
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Прогноз дохода/мес</div>
+      <div class="kpi-label">Прогноз дохода/мес (инвестиции)</div>
       <div class="kpi-value" id="bPKpiIncome">—</div>
     </div>
   </section>
@@ -589,51 +653,9 @@
     <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="bPensionChart"></canvas></div>
   </section>
 
-  <section class="panel whatif-panel whatif-panel--forward" aria-label="Что если: сколько можно тратить">
-    <div class="panel-header">
-      <h2>Что если: сколько можно тратить</h2>
-      <span class="panel-note">задай гипотетический капитал сейчас</span>
-    </div>
-    <label class="pension-input">
-      <span class="figure-label">Капитал сейчас (гипотетический), $</span>
-      <input type="number" id="bWCapitalNow" value="500000" min="0" step="10000" />
-    </label>
-    <div class="whatif-result">
-      <div class="whatif-result-row">
-        <span class="figure-label" id="bWProjectedAtRetireLabel">Вырастет к пенсии (реальными деньгами)</span>
-        <span class="figure-value" id="bWProjectedAtRetire">—</span>
-      </div>
-      <div class="whatif-result-row whatif-result-row--highlight">
-        <span class="figure-label">Можно будет тратить</span>
-        <span class="figure-value" id="bWCanSpendMonthly">—</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="panel whatif-panel whatif-panel--reverse" aria-label="Что если: сколько нужно иметь сейчас">
-    <div class="panel-header">
-      <h2>Что если: сколько нужно иметь сейчас</h2>
-      <span class="panel-note">задай желаемые траты на пенсии</span>
-    </div>
-    <label class="pension-input">
-      <span class="figure-label">Хочу тратить на пенсии, $/мес (сегодняшними деньгами)</span>
-      <input type="number" id="bWSpendMonthly" value="3000" min="0" step="100" />
-    </label>
-    <div class="whatif-result">
-      <div class="whatif-result-row">
-        <span class="figure-label">Нужен капитал на момент выхода на пенсию</span>
-        <span class="figure-value" id="bWRequiredAtRetire">—</span>
-      </div>
-      <div class="whatif-result-row whatif-result-row--highlight">
-        <span class="figure-label">Нужно иметь сейчас</span>
-        <span class="figure-value" id="bWRequiredNow">—</span>
-      </div>
-    </div>
-  </section>
-
   <section class="panel pension-table-panel" aria-label="Таблица по годам">
     <div class="panel-header">
-      <h2>По годам</h2>
+      <h2>По годам (инвестиции)</h2>
     </div>
     <div class="table-scroll">
       <table class="ledger-table" id="bPensionTable">
@@ -649,16 +671,6 @@
     <div class="panel-header">
       <h2>Гос. пенсия (Германия)</h2>
       <span class="panel-note">упрощённая оценка по системе пенсионных баллов (Entgeltpunkte)</span>
-    </div>
-    <div class="pension-inputs-grid">
-      <label class="pension-input">
-        <span class="figure-label">ЗП гросс, €/год</span>
-        <input type="number" id="bDeSalaryGross" value="70000" min="0" step="1000" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Кол-во лет работы (на этих условиях)</span>
-        <input type="number" id="bDeYearsWorked" value="15.5" min="0" max="60" step="0.5" />
-      </label>
     </div>
     <div class="pension-kpi-panel">
       <div class="kpi-cell">
@@ -690,9 +702,69 @@
       Оценка приблизительная: используются ориентировочные текущие значения среднегодовой
       зарплаты по Германии и стоимости пенсионного балла (без индексации на будущие годы).
       Немецкая государственная пенсия не может быть получена раньше 63 лет ни при каких
-      условиях — при выходе с работы в 55 лет накопленные баллы «замораживаются» и пенсия
+      условиях — при выходе с работы в 60 лет накопленные баллы «замораживаются» и пенсия
       начинает выплачиваться позже, с указанного возраста.
     </p>
+  </section>
+
+  <section class="panel state-pension-panel" aria-label="Приватная пенсия">
+    <div class="panel-header">
+      <h2>Приватная пенсия</h2>
+      <span class="panel-note">взнос растёт на инфляцию каждый год · выплата пропорциональна отработанным годам</span>
+    </div>
+    <div class="pension-kpi-panel">
+      <div class="kpi-cell">
+        <div class="kpi-label">Взнос сейчас, €/мес</div>
+        <div class="kpi-value" id="bPpContribNow">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Заполнено срока договора</div>
+        <div class="kpi-value" id="bPpProgress">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Пенсия (по факту лет), €/мес</div>
+        <div class="kpi-value" id="bPpActualPayout">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Выплата с возраста</div>
+        <div class="kpi-value" id="bPpPayoutAge">—</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel re-whatif-combined-panel" aria-label="Что если: целевой доход на пенсии из трёх источников">
+    <div class="panel-header">
+      <h2>Что если: целевой доход в 67 из гос. + приват. + инвестиций</h2>
+      <span class="panel-note">остаток сверх гос. и приват. пенсии берём из инвестиций</span>
+    </div>
+    <label class="pension-input">
+      <span class="figure-label">Желаемый доход на пенсии, €/мес (сегодняшними деньгами)</span>
+      <input type="number" id="bCiTargetMonthly" value="3000" min="0" step="100" />
+    </label>
+    <div class="pension-kpi-panel">
+      <div class="kpi-cell">
+        <div class="kpi-label">Покрывают гос. + приват., €/мес</div>
+        <div class="kpi-value" id="bCiCoveredByPensions">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Нужно из инвестиций (60–67), €/мес</div>
+        <div class="kpi-value" id="bCiGapBeforeState">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Нужно из инвестиций (67+), €/мес</div>
+        <div class="kpi-value" id="bCiGapAfterState">—</div>
+      </div>
+      <div class="kpi-divider" aria-hidden="true"></div>
+      <div class="kpi-cell">
+        <div class="kpi-label">Капитал инвестиций</div>
+        <div class="kpi-value" id="bCiCapitalNote">—</div>
+      </div>
+    </div>
   </section>
 
 </div>
@@ -909,6 +981,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

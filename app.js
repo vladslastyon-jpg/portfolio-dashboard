@@ -209,6 +209,7 @@ function createProfile(opts) {
   const { prefix, label, spreadsheetId, sheets, coreTickers, assetColors, hasGoalPanel, hasPlan, indexTickers, benchmarkTicker } = opts;
   const hasIncomeTarget = opts.hasIncomeTarget !== false; // по умолчанию true (текущее поведение, кроме профиля Алены)
   const hasStatePension = !!opts.hasStatePension;
+  const hasWhatIfPanels = opts.hasWhatIfPanels !== false; // по умолчанию true, кроме профиля Алены (заменено вехами/комбинированным что-если)
 
   function pid(base) {
     if (base === "app" || base === "refreshBtn") return base;
@@ -597,17 +598,20 @@ function wirePensionInputs() {
     document.getElementById(pid(id)).addEventListener("input", () => {
       if (hasIncomeTarget) updateTargetIncomeYearlyDisplay();
       if (derived.kpi) renderPension();
-      renderWhatIf();
+      if (hasWhatIfPanels) renderWhatIf();
+      if (hasStatePension) renderAllExtraPensionSections();
     });
   });
   if (hasIncomeTarget) updateTargetIncomeYearlyDisplay();
 
-  ["wCapitalNow", "wSpendMonthly"].forEach((id) => {
-    document.getElementById(pid(id)).addEventListener("input", renderWhatIf);
-  });
-  renderWhatIf();
+  if (hasWhatIfPanels) {
+    ["wCapitalNow", "wSpendMonthly"].forEach((id) => {
+      document.getElementById(pid(id)).addEventListener("input", renderWhatIf);
+    });
+    renderWhatIf();
+  }
 
-  if (hasStatePension) wireStatePensionInputs();
+  if (hasStatePension) wireExtraPensionSections();
 }
 
 function updateTargetIncomeYearlyDisplay() {
@@ -653,11 +657,126 @@ function renderStatePension() {
   document.getElementById(pid("dePayoutAge")).textContent = s.payoutAge + " лет";
 }
 
-function wireStatePensionInputs() {
-  ["deSalaryGross", "deYearsWorked"].forEach((id) => {
-    document.getElementById(pid(id)).addEventListener("input", renderStatePension);
+/**
+ * Приватная пенсия (betriebliche Altersvorsorge): взнос сотрудник+работодатель
+ * растёт на инфляцию каждый год (описательно, на итоговую выплату не влияет),
+ * договор на N лет — выплата при выходе на пенсию пропорциональна доле
+ * отработанных лет от полного срока договора (общее поле "Кол-во лет работы",
+ * то же самое, что используется для гос. пенсии — сколько работает, столько
+ * и платит взносов в оба источника).
+ */
+function computePrivatePension() {
+  const employeeContrib = parseNum(document.getElementById(pid("ppEmployeeContrib")).value) || 0;
+  const employerContrib = parseNum(document.getElementById(pid("ppEmployerContrib")).value) || 0;
+  const contractYears = parseNum(document.getElementById(pid("ppContractYears")).value) || 1;
+  const fullPayout = parseNum(document.getElementById(pid("ppFullPayout")).value) || 0;
+  const yearsWorked = parseNum(document.getElementById(pid("deYearsWorked")).value) || 0;
+  const retireAge = parseNum(document.getElementById(pid("pRetireAge")).value) || 60;
+
+  const contribNow = employeeContrib + employerContrib;
+  const progressFraction = contractYears > 0 ? Math.min(1, yearsWorked / contractYears) : 0;
+  const actualPayout = fullPayout * progressFraction;
+
+  return { contribNow, progressFraction, actualPayout, payoutAge: retireAge };
+}
+
+function renderPrivatePension() {
+  const pp = computePrivatePension();
+  document.getElementById(pid("ppContribNow")).textContent = fmtMoney(pp.contribNow) + "/мес";
+  document.getElementById(pid("ppProgress")).textContent = (pp.progressFraction * 100).toFixed(0) + "%";
+  document.getElementById(pid("ppActualPayout")).textContent = fmtMoney(pp.actualPayout) + "/мес";
+  document.getElementById(pid("ppPayoutAge")).textContent = pp.payoutAge + " лет";
+}
+
+function renderMilestoneSummary() {
+  const inputs = getPensionInputs();
+  const yearsToRetire = Math.max(0, inputs.retireAge - inputs.age);
+  document.getElementById(pid("msAgeNow")).textContent = inputs.age + " лет";
+  document.getElementById(pid("msRetireAge")).textContent = inputs.retireAge + " лет";
+  document.getElementById(pid("msYearsToRetire")).textContent = String(yearsToRetire);
+  document.getElementById(pid("msWithdrawDate")).textContent = String(new Date().getFullYear() + yearsToRetire);
+}
+
+/**
+ * Доход по вехам (возраст выхода на пенсию, 65, 67 — гос. пенсия добавляется
+ * с 67): по каждому возрасту берём капитал/доход инвестиций из той же
+ * траектории, что и основной расчёт (computePensionProjection), плюс
+ * приват. пенсию (с возраста выхода на пенсию) и гос. пенсию (с 67).
+ */
+function computeMilestones() {
+  const inputs = getPensionInputs();
+  const proj = computePensionProjection();
+  const pp = computePrivatePension();
+  const sp = computeStatePension();
+
+  const ages = [inputs.retireAge, 65, 67].filter((a) => a >= inputs.retireAge);
+  const uniqueAges = [...new Set(ages)].sort((a, b) => a - b);
+
+  return uniqueAges.map((age) => {
+    const row = proj.rows.find((r) => r.age === age);
+    const investMonthly = row ? row.monthlyIncome : null;
+    const privateMonthly = age >= pp.payoutAge ? pp.actualPayout : 0;
+    const stateMonthly = age >= sp.payoutAge ? sp.monthlyPension : 0;
+    const total = (investMonthly || 0) + privateMonthly + stateMonthly;
+    return { age, investMonthly, privateMonthly, stateMonthly, total };
   });
+}
+
+function renderMilestones() {
+  const rows = computeMilestones();
+  const tbody = document.getElementById(pid("milestoneTableBody"));
+  tbody.innerHTML = "";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.age} лет</td>
+      <td class="num">${r.investMonthly === null ? "—" : fmtMoney(r.investMonthly)}</td>
+      <td class="num">${fmtMoney(r.privateMonthly)}</td>
+      <td class="num">${fmtMoney(r.stateMonthly)}</td>
+      <td class="num" style="font-weight:600">${fmtMoney(r.total)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+/**
+ * "Что если": желаемый доход на пенсии закрывается сначала гос.+приват.
+ * пенсией, остаток — инвестициями. С возраста выхода на пенсию до 67 лет
+ * гос. пенсии ещё нет, поэтому из инвестиций нужно больше; после 67 —
+ * меньше (гос. пенсия подключается).
+ */
+function renderCombinedWhatIf() {
+  const pp = computePrivatePension();
+  const sp = computeStatePension();
+  const proj = computePensionProjection();
+  const target = parseNum(document.getElementById(pid("ciTargetMonthly")).value) || 0;
+
+  const coveredByPensions = pp.actualPayout + sp.monthlyPension;
+  const gapBeforeState = Math.max(0, target - pp.actualPayout);
+  const gapAfterState = Math.max(0, target - coveredByPensions);
+
+  document.getElementById(pid("ciCoveredByPensions")).textContent = fmtMoney(coveredByPensions) + "/мес";
+  document.getElementById(pid("ciGapBeforeState")).textContent = fmtMoney(gapBeforeState) + "/мес";
+  document.getElementById(pid("ciGapAfterState")).textContent = fmtMoney(gapAfterState) + "/мес";
+
+  const capitalAtRetire = proj.projected;
+  document.getElementById(pid("ciCapitalNote")).textContent = capitalAtRetire > 0
+    ? `${fmtMoney(capitalAtRetire)} на момент выхода на пенсию`
+    : "—";
+}
+
+function renderAllExtraPensionSections() {
   renderStatePension();
+  renderPrivatePension();
+  renderMilestoneSummary();
+  renderMilestones();
+  renderCombinedWhatIf();
+}
+
+function wireExtraPensionSections() {
+  const ids = ["deSalaryGross", "deYearsWorked", "ppEmployeeContrib", "ppEmployerContrib", "ppContractYears", "ppFullPayout", "ciTargetMonthly"];
+  ids.forEach((id) => {
+    document.getElementById(pid(id)).addEventListener("input", renderAllExtraPensionSections);
+  });
+  renderAllExtraPensionSections();
 }
 
 /**
@@ -1962,6 +2081,7 @@ const alenaProfile = createProfile({
   hasPlan: false,
   hasIncomeTarget: false,
   hasStatePension: true,
+  hasWhatIfPanels: false,
   indexTickers: ["CSPX"],
   benchmarkTicker: "CSPX",
   nativeCurrency: "EUR",
