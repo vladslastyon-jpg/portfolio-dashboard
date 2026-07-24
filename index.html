@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=16" />
+<link rel="stylesheet" href="style.css?v=17" />
 </head>
 <body>
 
@@ -779,39 +779,19 @@
     <div class="re-inputs-grid">
       <label class="pension-input">
         <span class="figure-label">Цена покупки, €</span>
-        <input type="number" id="rePrice" value="250000" min="0" step="1000" />
+        <input type="number" id="rePrice" value="600000" min="0" step="1000" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Площадь, м²</span>
-        <input type="number" id="reArea" value="80" min="0" step="1" />
+        <span class="figure-label">Аренда, €/мес</span>
+        <input type="number" id="reRentMonthly" value="760" min="0" step="10" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Аренда за м², €/мес</span>
-        <input type="number" id="reRentPerM2" value="9.5" min="0" step="0.1" />
+        <span class="figure-label">Невозмещаемые расходы по дому, €/мес</span>
+        <input type="number" id="reNonRecovMonthly" value="150" min="0" step="10" />
       </label>
       <label class="pension-input">
-        <span class="figure-label">Hausgeld всего, €/мес</span>
-        <input type="number" id="reServiceFeeTotal" value="300" min="0" step="10" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Hausgeld невозмещаемая, %</span>
-        <input type="number" id="reServiceFeeNonRecovShare" value="50" min="0" max="100" step="1" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Grunderwerbsteuer, %</span>
-        <input type="number" id="reTransferTaxRate" value="3.5" min="3.5" max="6.5" step="0.1" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Нотариус + реестр, %</span>
-        <input type="number" id="reNotaryRate" value="1.5" min="0" max="3" step="0.1" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Комиссия маклера, %</span>
-        <input type="number" id="reAgentRate" value="3.57" min="0" max="10" step="0.01" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Собственный капитал, €</span>
-        <input type="number" id="reEquity" value="100000" min="0" step="5000" />
+        <span class="figure-label">Расходы при покупке, %</span>
+        <input type="number" id="rePurchaseCostRate" value="9" min="0" max="15" step="0.1" />
       </label>
       <label class="pension-input">
         <span class="figure-label">Ставка по кредиту, %/год</span>
@@ -833,27 +813,40 @@
         <span class="figure-label">Предельная налог. ставка, %</span>
         <input type="number" id="reMarginalTaxRate" value="42" min="0" max="48" step="0.5" />
       </label>
-      <label class="pension-input">
-        <span class="figure-label">Рост цены в год (продажа), %</span>
-        <input type="number" id="rePriceGrowthRate" value="2" min="0" max="20" step="0.1" />
-      </label>
-      <label class="pension-input">
-        <span class="figure-label">Расходы на продажу, %</span>
-        <input type="number" id="reSaleCostRate" value="4" min="0" max="15" step="0.1" />
-      </label>
     </div>
     <p class="panel-note is-negative" id="reErrorNote" hidden></p>
   </section>
 
+  <section class="panel re-slider-panel" aria-label="Первый взнос и доплата">
+    <div class="panel-header">
+      <h2>Первый взнос ↔ Доплата</h2>
+      <span class="panel-note">двигай любой слайдер — второй пересчитается мгновенно</span>
+    </div>
+    <div class="re-slider-row">
+      <div class="re-slider-label-row">
+        <span class="figure-label">Первый взнос (собственный капитал), €</span>
+        <span class="re-slider-value" id="reEquityValue">—</span>
+      </div>
+      <input type="range" id="reEquitySlider" min="0" max="654000" step="1000" value="100000" />
+    </div>
+    <div class="re-slider-row">
+      <div class="re-slider-label-row">
+        <span class="figure-label">Доплата, €/мес (1-й год)</span>
+        <span class="re-slider-value" id="reTopUpValue">—</span>
+      </div>
+      <input type="range" id="reTopUpSlider" min="0" max="1" step="1" value="0" />
+    </div>
+  </section>
+
   <section class="panel pension-kpi-panel re-kpi-panel" aria-label="Итоги расчёта">
     <div class="kpi-cell">
-      <div class="kpi-label">Итого нужно</div>
-      <div class="kpi-value" id="reKpiTotalInvestment">—</div>
+      <div class="kpi-label">Кредит</div>
+      <div class="kpi-value" id="reKpiLoan">—</div>
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Кредит / LTV</div>
-      <div class="kpi-value" id="reKpiLoan">—</div>
+      <div class="kpi-label">LTV</div>
+      <div class="kpi-value" id="reKpiLtv">—</div>
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
@@ -862,110 +855,9 @@
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Доплата в 1-й год, €/мес</div>
+      <div class="kpi-label">Доплата, €/мес (год 1)</div>
       <div class="kpi-value" id="reKpiTopUpYear1">—</div>
     </div>
-    <div class="kpi-divider" aria-hidden="true"></div>
-    <div class="kpi-cell">
-      <div class="kpi-label">Доплата в посл. год кредита</div>
-      <div class="kpi-value" id="reKpiTopUpLastYear">—</div>
-    </div>
-  </section>
-
-  <section class="panel pension-kpi-panel re-kpi-panel" aria-label="Итоги расчёта (продолжение)">
-    <div class="kpi-cell">
-      <div class="kpi-label">Средняя доплата за срок, €/мес</div>
-      <div class="kpi-value" id="reKpiAvgTopUp">—</div>
-    </div>
-    <div class="kpi-divider" aria-hidden="true"></div>
-    <div class="kpi-cell">
-      <div class="kpi-label">Итого доплат за срок</div>
-      <div class="kpi-value" id="reKpiTotalTopUp">—</div>
-    </div>
-    <div class="kpi-divider" aria-hidden="true"></div>
-    <div class="kpi-cell">
-      <div class="kpi-label">Остаток долга через 10 лет</div>
-      <div class="kpi-value" id="reKpiBalance10y">—</div>
-    </div>
-    <div class="kpi-divider" aria-hidden="true"></div>
-    <div class="kpi-cell">
-      <div class="kpi-label">Ден. поток/мес после погашения</div>
-      <div class="kpi-value" id="reKpiCashflowAfterPayoff">—</div>
-    </div>
-  </section>
-
-  <section class="panel chart-panel" aria-label="Остаток долга по годам">
-    <div class="panel-header">
-      <h2>Остаток долга по годам</h2>
-    </div>
-    <div class="chart-canvas-wrap"><canvas id="reDebtChart"></canvas></div>
-  </section>
-
-  <section class="panel chart-panel" aria-label="Доплата и накопленная доплата по годам">
-    <div class="panel-header">
-      <h2>Доплата €/мес (по годам) и накопленная доплата</h2>
-    </div>
-    <div class="chart-canvas-wrap"><canvas id="reCashflowChart"></canvas></div>
-  </section>
-
-  <section class="panel pension-table-panel" aria-label="Таблица по годам">
-    <div class="panel-header">
-      <h2>По годам</h2>
-    </div>
-    <div class="table-scroll table-scroll--wide">
-      <table class="ledger-table" id="reYearTable">
-        <thead>
-          <tr>
-            <th class="num">Год</th><th class="num">Остаток нач.</th><th class="num">Проценты</th>
-            <th class="num">Тело кредита</th><th class="num">Остаток кон.</th><th class="num">Ден.поток до налога</th>
-            <th class="num">Налог. эффект</th><th class="num">Ден.поток после налога</th>
-            <th class="num">Доплата, €/мес</th><th class="num">Накопл. доплата</th>
-          </tr>
-        </thead>
-        <tbody id="reYearTableBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel re-sale-panel" aria-label="Сценарий продажи">
-    <div class="panel-header">
-      <h2>Сценарий продажи (после окончания срока кредита)</h2>
-    </div>
-    <div class="pension-kpi-panel">
-      <div class="kpi-cell">
-        <div class="kpi-label">Цена продажи</div>
-        <div class="kpi-value" id="reSalePrice">—</div>
-      </div>
-      <div class="kpi-divider" aria-hidden="true"></div>
-      <div class="kpi-cell">
-        <div class="kpi-label">Расходы на продажу</div>
-        <div class="kpi-value" id="reSaleCosts">—</div>
-      </div>
-      <div class="kpi-divider" aria-hidden="true"></div>
-      <div class="kpi-cell">
-        <div class="kpi-label">Остаток долга</div>
-        <div class="kpi-value" id="reSaleRemainingDebt">—</div>
-      </div>
-      <div class="kpi-divider" aria-hidden="true"></div>
-      <div class="kpi-cell">
-        <div class="kpi-label">Чистая выручка</div>
-        <div class="kpi-value" id="reSaleNetProceeds">—</div>
-      </div>
-      <div class="kpi-divider" aria-hidden="true"></div>
-      <div class="kpi-cell">
-        <div class="kpi-label">Использ. капитал</div>
-        <div class="kpi-value" id="reSaleCapitalUsed">—</div>
-      </div>
-      <div class="kpi-divider" aria-hidden="true"></div>
-      <div class="kpi-cell">
-        <div class="kpi-label">Прибыль</div>
-        <div class="kpi-value" id="reSaleProfit">—</div>
-      </div>
-    </div>
-    <p class="panel-note">
-      Если срок владения ≥ 10 лет — в Германии прибыль от продажи частной недвижимости не облагается
-      налогом (Spekulationsfrist, §23 EStG); прибыль выше уже чистая.
-    </p>
   </section>
 
 </div>
@@ -981,6 +873,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

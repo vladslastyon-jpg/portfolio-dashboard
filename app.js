@@ -2112,7 +2112,7 @@ function syncCurrencyButtons() {
   document.querySelectorAll(".ccy-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.ccy === activeCcy));
 }
 
-/* -------------------------- Калькулятор недвижимости (раздел "Недвижимость", независим от Google Sheets) -------------------------- */
+/* -------------------------- Калькулятор недвижимости v2 (раздел "Недвижимость", независим от Google Sheets) -------------------------- */
 
 function fmtEUR(value) {
   if (value === null || value === undefined || isNaN(value)) return "—";
@@ -2120,229 +2120,120 @@ function fmtEUR(value) {
   return `${sign}€${Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-let reDebtChart = null;
-let reCashflowChart = null;
-
-const RE_INPUT_IDS = [
-  "rePrice", "reArea", "reRentPerM2", "reServiceFeeTotal", "reServiceFeeNonRecovShare",
-  "reTransferTaxRate", "reNotaryRate", "reAgentRate", "reEquity", "reInterestRate", "reLoanTermYears",
-  "reBuildingShare", "reDepreciationRate", "reMarginalTaxRate", "rePriceGrowthRate", "reSaleCostRate",
+const RE_BASE_INPUT_IDS = [
+  "rePrice", "reRentMonthly", "reNonRecovMonthly", "rePurchaseCostRate",
+  "reInterestRate", "reLoanTermYears", "reBuildingShare", "reDepreciationRate", "reMarginalTaxRate",
 ];
 
-function getRealEstateInputs() {
+function getRealEstateBaseInputs() {
   const pct = (id) => (parseNum(document.getElementById(id).value) || 0) / 100;
   return {
     price: parseNum(document.getElementById("rePrice").value) || 0,
-    area: parseNum(document.getElementById("reArea").value) || 0,
-    rentPerM2: parseNum(document.getElementById("reRentPerM2").value) || 0,
-    serviceFeeTotal: parseNum(document.getElementById("reServiceFeeTotal").value) || 0,
-    serviceFeeNonRecovShare: pct("reServiceFeeNonRecovShare"),
-    transferTaxRate: pct("reTransferTaxRate"),
-    notaryRate: pct("reNotaryRate"),
-    agentRate: pct("reAgentRate"),
-    equity: parseNum(document.getElementById("reEquity").value) || 0,
+    rentMonthly: parseNum(document.getElementById("reRentMonthly").value) || 0,
+    nonRecovMonthly: parseNum(document.getElementById("reNonRecovMonthly").value) || 0,
+    purchaseCostRate: pct("rePurchaseCostRate"),
     interestRate: pct("reInterestRate"),
     loanTermYears: Math.max(1, Math.min(30, Math.round(parseNum(document.getElementById("reLoanTermYears").value)) || 1)),
     buildingShare: pct("reBuildingShare"),
     depreciationRate: pct("reDepreciationRate"),
     marginalTaxRate: pct("reMarginalTaxRate"),
-    priceGrowthRate: pct("rePriceGrowthRate"),
-    saleCostRate: pct("reSaleCostRate"),
   };
 }
 
 /**
- * Расчёт по спецификации TZ_Immobilien_Kalkulator.md: аннуитетный кредит,
- * немецкий налоговый эффект (амортизация AfA + проценты + невозмещаемый
- * Hausgeld уменьшают налогооблагаемый доход от аренды), таблица по годам
- * 1..30 (после погашения кредита principal/interest = 0, но амортизация и
- * налог продолжают действовать — без отдельной ветки кода), и сценарий
- * продажи по окончании срока кредита.
+ * Расчёт по TZ_Immobilien_Kalkulator_v2.md: только год 1 (без таблицы по
+ * годам и сценария продажи). K/C — коэффициенты линейной связи
+ * topupAnnual = loan*K + C, которая позволяет пересчитывать
+ * "Первый взнос" <-> "Доплата" мгновенно в обе стороны без итераций.
  */
-function computeRealEstate() {
-  const inp = getRealEstateInputs();
-  const purchaseCosts = inp.price * (inp.transferTaxRate + inp.notaryRate + inp.agentRate);
-  const totalInvestment = inp.price + purchaseCosts;
-  const loanAmount = totalInvestment - inp.equity;
-
-  if (loanAmount <= 0) {
-    return { error: "Собственный капитал больше (или равен) требуемых инвестиций — кредит не нужен", inp, totalInvestment };
-  }
-
-  const ltv = inp.price > 0 ? loanAmount / inp.price : 0;
+function computeRealEstateBase() {
+  const inp = getRealEstateBaseInputs();
+  const totalInvestment = inp.price * (1 + inp.purchaseCostRate);
   const r = inp.interestRate;
   const n = inp.loanTermYears;
   const pow = Math.pow(1 + r, n);
-  const annuity = r > 0 ? (loanAmount * r * pow) / (pow - 1) : loanAmount / n;
+  const annuityFactor = r > 0 ? (r * pow) / (pow - 1) : 1 / n;
 
-  const annualRent = inp.area * inp.rentPerM2 * 12;
-  const nonRecoverableCosts = inp.serviceFeeTotal * 12 * inp.serviceFeeNonRecovShare;
-  const depreciationBase = totalInvestment * inp.buildingShare;
-  const annualDepreciation = depreciationBase * inp.depreciationRate;
+  const afaAnnual = totalInvestment * inp.buildingShare * inp.depreciationRate;
+  const rentAnnual = inp.rentMonthly * 12;
+  const nonRecovAnnual = inp.nonRecovMonthly * 12;
 
-  const rows = [];
-  let balanceEnd = loanAmount;
-  let cumulativeTopUp = 0;
-  for (let year = 1; year <= 30; year++) {
-    const balanceStart = balanceEnd;
-    const interest = balanceStart > 0 ? balanceStart * r : 0;
-    const principal = year <= n ? Math.min(annuity - interest, balanceStart) : 0;
-    balanceEnd = Math.max(balanceStart - principal, 0);
+  const K = annuityFactor - inp.marginalTaxRate * r;
+  const C = (nonRecovAnnual - rentAnnual) * (1 - inp.marginalTaxRate) - inp.marginalTaxRate * afaAnnual;
 
-    const taxableResult = annualRent - annualDepreciation - interest - nonRecoverableCosts;
-    const taxEffect = -taxableResult * inp.marginalTaxRate;
-
-    const cashFlowBeforeTax = annualRent - nonRecoverableCosts - (interest + principal);
-    const cashFlowAfterTax = cashFlowBeforeTax + taxEffect;
-
-    const monthlyTopUp = -cashFlowAfterTax / 12;
-    cumulativeTopUp += monthlyTopUp * 12;
-
-    rows.push({ year, balanceStart, interest, principal, balanceEnd, cashFlowBeforeTax, taxEffect, cashFlowAfterTax, monthlyTopUp, cumulativeTopUp });
-  }
-
-  const rowAt = (year) => rows.find((row) => row.year === year);
-  const year1 = rowAt(1);
-  const yearLast = rowAt(n) || year1;
-  const year10 = rowAt(10);
-  const yearAfterPayoff = rowAt(n + 1);
-  const totalTopUpOverTerm = yearLast.cumulativeTopUp;
-  const avgTopUp = n > 0 ? totalTopUpOverTerm / n / 12 : 0;
-
-  const salePrice = inp.price * Math.pow(1 + inp.priceGrowthRate, n);
-  const saleCosts = salePrice * inp.saleCostRate;
-  const remainingDebt = yearLast.balanceEnd;
-  const netProceeds = salePrice - saleCosts - remainingDebt;
-  const capitalUsed = inp.equity + totalTopUpOverTerm;
-  const profit = netProceeds - capitalUsed;
-
-  return {
-    inp, purchaseCosts, totalInvestment, loanAmount, ltv, annuity, rows,
-    year1, yearLast, year10, yearAfterPayoff, totalTopUpOverTerm, avgTopUp,
-    sale: { salePrice, saleCosts, remainingDebt, netProceeds, capitalUsed, profit },
-  };
+  return { inp, totalInvestment, annuityFactor, afaAnnual, rentAnnual, nonRecovAnnual, K, C };
 }
 
-function renderRealEstate() {
-  const errEl = document.getElementById("reErrorNote");
-  const res = computeRealEstate();
-  const kpiIds = ["reKpiTotalInvestment", "reKpiLoan", "reKpiAnnuity", "reKpiTopUpYear1", "reKpiTopUpLastYear",
-    "reKpiAvgTopUp", "reKpiTotalTopUp", "reKpiBalance10y", "reKpiCashflowAfterPayoff"];
-  const saleIds = ["reSalePrice", "reSaleCosts", "reSaleRemainingDebt", "reSaleNetProceeds", "reSaleCapitalUsed", "reSaleProfit"];
+/**
+ * Обновляет диапазоны слайдеров под текущие базовые параметры: "Первый
+ * взнос" — от 0 до totalInvestment; "Доплата" — между значениями при
+ * equity=0 (макс. доплата) и equity=totalInvestment (мин. доплата).
+ */
+function updateRealEstateSliderBounds(base) {
+  const equityEl = document.getElementById("reEquitySlider");
+  equityEl.min = 0;
+  equityEl.max = Math.max(1, Math.round(base.totalInvestment));
+  equityEl.step = 100; // фиксированный мелкий шаг — иначе браузер "снапит" текущее значение к шагу при его смене
 
-  if (res.error) {
+  const topUpAtZeroEquity = (base.totalInvestment * base.K + base.C) / 12;
+  const topUpAtFullEquity = (0 * base.K + base.C) / 12;
+  const lo = Math.min(topUpAtZeroEquity, topUpAtFullEquity);
+  const hi = Math.max(topUpAtZeroEquity, topUpAtFullEquity);
+  const topupEl = document.getElementById("reTopUpSlider");
+  topupEl.min = Math.floor(lo - 50);
+  topupEl.max = Math.ceil(hi + 50);
+  topupEl.step = 1;
+}
+
+function renderRealEstate(source) {
+  const base = computeRealEstateBase();
+  updateRealEstateSliderBounds(base);
+
+  const equityEl = document.getElementById("reEquitySlider");
+  const topupEl = document.getElementById("reTopUpSlider");
+  const errEl = document.getElementById("reErrorNote");
+
+  let equity, loan, topupMonth1;
+  if (source === "topup") {
+    topupMonth1 = parseNum(topupEl.value);
+    loan = base.K !== 0 ? (topupMonth1 * 12 - base.C) / base.K : NaN;
+    equity = base.totalInvestment - loan;
+  } else {
+    equity = parseNum(equityEl.value);
+    loan = base.totalInvestment - equity;
+    topupMonth1 = (loan * base.K + base.C) / 12;
+  }
+
+  const isError = !isFinite(loan) || !isFinite(equity) || loan <= 0 || loan > base.totalInvestment;
+
+  if (source !== "equity") equityEl.value = Math.max(0, Math.min(Number(equityEl.max), equity));
+  if (source !== "topup") topupEl.value = topupMonth1;
+  document.getElementById("reEquityValue").textContent = fmtEUR(equity);
+  document.getElementById("reTopUpValue").textContent = fmtEUR(topupMonth1) + "/мес";
+
+  const kpiIds = ["reKpiLoan", "reKpiLtv", "reKpiAnnuity", "reKpiTopUpYear1"];
+  if (isError) {
+    kpiIds.forEach((id) => { document.getElementById(id).textContent = "Ошибка"; });
     errEl.hidden = false;
-    errEl.textContent = "⚠ " + res.error;
-    kpiIds.forEach((id) => { document.getElementById(id).textContent = "—"; });
-    saleIds.forEach((id) => { document.getElementById(id).textContent = "—"; });
-    document.getElementById("reYearTableBody").innerHTML = '<tr><td colspan="10" class="empty-row">Исправь параметры выше</td></tr>';
-    if (reDebtChart) { reDebtChart.destroy(); reDebtChart = null; }
-    if (reCashflowChart) { reCashflowChart.destroy(); reCashflowChart = null; }
+    errEl.textContent = "⚠ Первый взнос не может быть отрицательным — уменьши доплату или проверь параметры";
     return;
   }
   errEl.hidden = true;
 
-  document.getElementById("reKpiTotalInvestment").textContent = fmtEUR(res.totalInvestment);
-  document.getElementById("reKpiLoan").textContent = fmtEUR(res.loanAmount) + " · LTV " + (res.ltv * 100).toFixed(1) + "%";
-  document.getElementById("reKpiAnnuity").textContent = fmtEUR(res.annuity / 12);
-  document.getElementById("reKpiTopUpYear1").textContent = fmtEUR(res.year1.monthlyTopUp);
-  document.getElementById("reKpiTopUpLastYear").textContent = fmtEUR(res.yearLast.monthlyTopUp);
-  document.getElementById("reKpiAvgTopUp").textContent = fmtEUR(res.avgTopUp);
-  document.getElementById("reKpiTotalTopUp").textContent = fmtEUR(res.totalTopUpOverTerm);
-  document.getElementById("reKpiBalance10y").textContent = res.year10 ? fmtEUR(res.year10.balanceEnd) : "—";
-  document.getElementById("reKpiCashflowAfterPayoff").textContent = res.yearAfterPayoff ? fmtEUR(-res.yearAfterPayoff.monthlyTopUp) : "—";
-
-  const tbody = document.getElementById("reYearTableBody");
-  tbody.innerHTML = "";
-  res.rows.forEach((r) => {
-    const tr = document.createElement("tr");
-    if (r.year === res.inp.loanTermYears) tr.classList.add("ticker-total-row");
-    tr.innerHTML = `<td class="num">${r.year}</td>
-      <td class="num">${fmtEUR(r.balanceStart)}</td>
-      <td class="num">${fmtEUR(r.interest)}</td>
-      <td class="num">${fmtEUR(r.principal)}</td>
-      <td class="num">${fmtEUR(r.balanceEnd)}</td>
-      <td class="num ${signClass(r.cashFlowBeforeTax)}">${fmtEUR(r.cashFlowBeforeTax)}</td>
-      <td class="num ${signClass(r.taxEffect)}">${fmtEUR(r.taxEffect)}</td>
-      <td class="num ${signClass(r.cashFlowAfterTax)}">${fmtEUR(r.cashFlowAfterTax)}</td>
-      <td class="num ${signClass(-r.monthlyTopUp)}">${fmtEUR(r.monthlyTopUp)}</td>
-      <td class="num">${fmtEUR(r.cumulativeTopUp)}</td>`;
-    tbody.appendChild(tr);
-  });
-
-  const labels = res.rows.map((r) => String(r.year));
-
-  if (reDebtChart) reDebtChart.destroy();
-  reDebtChart = new Chart(document.getElementById("reDebtChart"), {
-    type: "line",
-    data: {
-      labels,
-      datasets: [{
-        label: "Остаток долга",
-        data: res.rows.map((r) => r.balanceEnd),
-        borderColor: "#C39A48",
-        backgroundColor: "rgba(195,154,72,0.10)",
-        borderWidth: 2.5,
-        pointRadius: 0,
-        fill: true,
-        tension: 0.1,
-      }],
-    },
-    options: chartBaseOptions(true),
-  });
-
-  if (reCashflowChart) reCashflowChart.destroy();
-  reCashflowChart = new Chart(document.getElementById("reCashflowChart"), {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          type: "bar",
-          label: "Доплата, €/мес",
-          data: res.rows.map((r) => r.monthlyTopUp),
-          backgroundColor: res.rows.map((r) => (r.monthlyTopUp >= 0 ? "rgba(194,92,80,0.55)" : "rgba(85,167,118,0.55)")),
-          yAxisID: "y",
-        },
-        {
-          type: "line",
-          label: "Накопленная доплата",
-          data: res.rows.map((r) => r.cumulativeTopUp),
-          borderColor: "#3E7B8C",
-          backgroundColor: "transparent",
-          borderWidth: 2,
-          pointRadius: 0,
-          yAxisID: "y1",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: true, position: "top", labels: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, boxWidth: 10 } } },
-      scales: {
-        x: { ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: "#1E2530" } },
-        y: { position: "left", ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } }, grid: { color: "#1E2530" } },
-        y1: { position: "right", ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } }, grid: { display: false } },
-      },
-    },
-  });
-
-  document.getElementById("reSalePrice").textContent = fmtEUR(res.sale.salePrice);
-  document.getElementById("reSaleCosts").textContent = fmtEUR(res.sale.saleCosts);
-  document.getElementById("reSaleRemainingDebt").textContent = fmtEUR(res.sale.remainingDebt);
-  document.getElementById("reSaleNetProceeds").textContent = fmtEUR(res.sale.netProceeds);
-  document.getElementById("reSaleCapitalUsed").textContent = fmtEUR(res.sale.capitalUsed);
-  const profitEl = document.getElementById("reSaleProfit");
-  profitEl.textContent = fmtEUR(res.sale.profit);
-  profitEl.className = "kpi-value " + signClass(res.sale.profit);
+  const annuity = loan * base.annuityFactor;
+  document.getElementById("reKpiLoan").textContent = fmtEUR(loan);
+  document.getElementById("reKpiLtv").textContent = base.inp.price > 0 ? ((loan / base.inp.price) * 100).toFixed(1) + "%" : "—";
+  document.getElementById("reKpiAnnuity").textContent = fmtEUR(annuity / 12);
+  document.getElementById("reKpiTopUpYear1").textContent = fmtEUR(topupMonth1);
 }
 
 function wireRealEstateInputs() {
-  RE_INPUT_IDS.forEach((id) => {
-    document.getElementById(id).addEventListener("input", renderRealEstate);
+  RE_BASE_INPUT_IDS.forEach((id) => {
+    document.getElementById(id).addEventListener("input", () => renderRealEstate("equity"));
   });
-  renderRealEstate();
+  document.getElementById("reEquitySlider").addEventListener("input", () => renderRealEstate("equity"));
+  document.getElementById("reTopUpSlider").addEventListener("input", () => renderRealEstate("topup"));
+  renderRealEstate("equity");
 }
 
 /* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
