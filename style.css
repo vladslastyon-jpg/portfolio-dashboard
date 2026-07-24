@@ -230,8 +230,6 @@ body {
 .tab-panel[data-tab="portfolioAlena"],
 .tab-panel[data-tab="pensionAlena"] {
   background: #0A0F2C;
-  margin: 0 -28px;
-  padding: 24px 28px 60px;
 }
 .tab-panel[data-tab="portfolioAlena"] .panel,
 .tab-panel[data-tab="pensionAlena"] .panel {
@@ -470,6 +468,17 @@ body {
 .state-pension-panel { grid-column: span 12; }
 .state-pension-panel .pension-kpi-panel { margin-top: 16px; }
 .state-pension-panel .panel-note { display: block; margin-top: 14px; line-height: 1.5; }
+
+/* ---------------- Real estate calculator ---------------- */
+.re-inputs-panel { grid-column: span 12; }
+.re-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px 16px;
+  align-items: end;
+}
+.re-sale-panel { grid-column: span 12; }
+.re-sale-panel .pension-kpi-panel { margin-bottom: 14px; }
 
 .whatif-panel { grid-column: span 6; display: flex; flex-direction: column; gap: 16px; }
 .whatif-panel .pension-input input { font-size: 18px; padding: 10px 12px; }
