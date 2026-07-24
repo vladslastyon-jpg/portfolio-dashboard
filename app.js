@@ -591,6 +591,10 @@ function renderPension() {
 }
 
 function wirePensionInputs() {
+  // Восстановить сохранённые значения ДО первого рендера, чтобы расчёт сразу
+  // шёл по восстановленным данным, а не по дефолтам из HTML.
+  if (hasStatePension) loadPensionAlenaInputs();
+
   const ids = ["pAge", "pRetireAge", "pEndAge", "pNominalReturn", "pInflation", "pWithdrawRate"];
   if (hasIncomeTarget) ids.push("pTargetIncomeMonthly");
   else ids.push("pAnnualContribution");
@@ -612,7 +616,10 @@ function wirePensionInputs() {
     renderWhatIf();
   }
 
-  if (hasStatePension) wireExtraPensionSections();
+  if (hasStatePension) {
+    wireExtraPensionSections();
+    wirePensionAlenaPersistence();
+  }
 }
 
 function updateTargetIncomeYearlyDisplay() {
@@ -2498,6 +2505,457 @@ function wireBudgetInputs() {
   bgRecalc();
 }
 
+/* -------------------------- Семейный кэш-флоу на 15 лет (раздел "Кэш-флоу 15 лет") -------------------------- */
+
+const CF_STORAGE_KEY = "cashflow_state_v1";
+
+let cfSettings = {
+  startDate: "2026-07",
+  moveInDate: "2033-07",
+  startReserve: 20000,
+  baseIncome: 6600,
+  baseExpense: 4200,
+  downPaymentAmount: 100000,
+  downPaymentDate: "2026-07",
+};
+
+let cfIncomeEvents = [
+  { name: "Сдача квартиры (кредитной)", amount: 1400, freq: "monthly", start: "2026-07", end: null, linked: "moveIn" },
+];
+
+let cfExpenseEvents = [
+  { name: "Кредит на квартиру", amount: 4150, freq: "monthly", start: "2026-07", end: null, linked: "downPayment" },
+  { name: "Аренда текущей квартиры", amount: 1400, freq: "monthly", start: "2026-07", end: null, linked: "moveIn" },
+];
+
+let cfDividendsByYear = [3000, 3000, 3200, 3200, 3400];
+
+/* ---- дата-утилиты: ym строится как year*12+(month-1), чтобы calendarYearOf корректно восстанавливал год ---- */
+function cfYm(str) {
+  const [y, m] = str.split("-").map(Number);
+  return y * 12 + (m - 1);
+}
+function cfYmToLabel(idx) {
+  const y = Math.floor(idx / 12);
+  const m = idx - y * 12 + 1;
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+function cfCalendarYearOf(idx) { return Math.floor(idx / 12); }
+
+/* ---- связанные поля: "downPayment" переопределяет start, "moveIn" переопределяет end ---- */
+function cfEventStart(ev) {
+  if (ev.linked === "downPayment") return cfYm(cfSettings.downPaymentDate);
+  return cfYm(ev.start);
+}
+function cfEventEnd(ev) {
+  if (ev.linked === "moveIn") return cfYm(cfSettings.moveInDate) - 1;
+  return ev.end ? cfYm(ev.end) : Infinity;
+}
+
+function cfMonthlyContribution(ev, monthIdx) {
+  const s = cfEventStart(ev);
+  const e = cfEventEnd(ev);
+  if (monthIdx < s || monthIdx > e) return 0;
+  const offset = monthIdx - s;
+  if (ev.freq === "once") return monthIdx === s ? ev.amount : 0;
+  if (ev.freq === "monthly") return ev.amount;
+  if (ev.freq === "annual") return offset % 12 === 0 ? ev.amount : 0;
+  return 0;
+}
+
+/* ---- дивиденды: год 1 = первый ПОЛНЫЙ календарный год после startDate, выплата целиком в декабре ---- */
+function cfDividendYear(i) {
+  const startYear = parseInt(cfSettings.startDate.split("-")[0], 10);
+  return startYear + 1 + i;
+}
+function cfDividendContribution(monthIdx) {
+  const calMonth = ((monthIdx % 12) + 12) % 12;
+  if (calMonth !== 11) return 0;
+  const y = cfCalendarYearOf(monthIdx);
+  for (let i = 0; i < cfDividendsByYear.length; i++) {
+    if (y === cfDividendYear(i)) return cfDividendsByYear[i];
+  }
+  return 0;
+}
+
+/**
+ * Главный цикл: 180 месяцев с startDate. reserveBeforeDownPayment фиксируется
+ * ДО списания взноса (и до начисления net этого месяца) — поэтому при
+ * downPaymentDate=startDate он равен startReserve, ещё нетронутому.
+ */
+function cfRecalc() {
+  const startIdx = cfYm(cfSettings.startDate);
+  const months = [];
+  for (let i = 0; i < 180; i++) months.push(startIdx + i);
+
+  const incArr = [], expArr = [], netFlow = [], cum = [];
+  let running = cfSettings.startReserve;
+  const dpMonthIdx = cfYm(cfSettings.downPaymentDate);
+  let reserveBeforeDownPayment = null;
+
+  months.forEach((monthIdx) => {
+    let inc = cfSettings.baseIncome;
+    let exp = cfSettings.baseExpense;
+    cfIncomeEvents.forEach((ev) => { inc += cfMonthlyContribution(ev, monthIdx); });
+    cfExpenseEvents.forEach((ev) => { exp += cfMonthlyContribution(ev, monthIdx); });
+    inc += cfDividendContribution(monthIdx);
+
+    if (monthIdx === dpMonthIdx) {
+      reserveBeforeDownPayment = running;
+      exp += cfSettings.downPaymentAmount;
+    }
+
+    incArr.push(inc);
+    expArr.push(exp);
+    const net = inc - exp;
+    netFlow.push(net);
+    running += net;
+    cum.push(running);
+  });
+
+  if (reserveBeforeDownPayment === null) reserveBeforeDownPayment = cfSettings.startReserve;
+  return { months, incArr, expArr, netFlow, cum, reserveBeforeDownPayment, dpMonthIdx };
+}
+
+function cfRenderKpis(res) {
+  const endReserve = res.cum[179];
+  let minVal = res.cum[0], minIdx = 0;
+  res.cum.forEach((v, i) => { if (v < minVal) { minVal = v; minIdx = i; } });
+  const gapMonths = res.cum.filter((v) => v < 0).length;
+
+  const endEl = document.getElementById("cfKpiEndReserve");
+  endEl.textContent = fmtEUR(endReserve);
+  endEl.className = "kpi-value " + signClass(endReserve);
+
+  const minEl = document.getElementById("cfKpiMinReserve");
+  minEl.textContent = `${fmtEUR(minVal)} (${cfYmToLabel(res.months[minIdx])})`;
+  minEl.className = "kpi-value " + signClass(minVal);
+
+  const gapEl = document.getElementById("cfKpiGapMonths");
+  gapEl.textContent = String(gapMonths);
+  gapEl.className = "kpi-value " + (gapMonths === 0 ? "is-positive" : "is-negative");
+
+  const enough = res.reserveBeforeDownPayment >= cfSettings.downPaymentAmount;
+  const dpEl = document.getElementById("cfKpiDownPayment");
+  if (enough) {
+    const spare = res.reserveBeforeDownPayment - cfSettings.downPaymentAmount;
+    dpEl.textContent = `Накоплено ${fmtEUR(res.reserveBeforeDownPayment)} из ${fmtEUR(cfSettings.downPaymentAmount)} — с запасом ${fmtEUR(spare)}`;
+    dpEl.className = "kpi-value is-positive";
+  } else {
+    const gap = cfSettings.downPaymentAmount - res.reserveBeforeDownPayment;
+    dpEl.textContent = `Накоплено ${fmtEUR(res.reserveBeforeDownPayment)} из ${fmtEUR(cfSettings.downPaymentAmount)} — не хватает ${fmtEUR(gap)} к ${cfSettings.downPaymentDate}`;
+    dpEl.className = "kpi-value is-negative";
+  }
+}
+
+let cfReserveChart = null;
+let cfNetFlowChart = null;
+
+function cfYearBoundaryLabel(months, i) {
+  if (i === 0) return String(cfCalendarYearOf(months[0]));
+  const yPrev = cfCalendarYearOf(months[i - 1]);
+  const yCur = cfCalendarYearOf(months[i]);
+  return yCur !== yPrev ? String(yCur) : "";
+}
+
+function cfZeroLineGrid(ctx) {
+  return ctx.tick.value === 0 ? "#7C8798" : "#1E2530";
+}
+
+function cfRenderCharts(res) {
+  const labels = res.months.map((m) => cfYmToLabel(m));
+
+  if (cfReserveChart) cfReserveChart.destroy();
+  cfReserveChart = new Chart(document.getElementById("cfReserveChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Резерв нарастающим итогом",
+        data: res.cum,
+        borderWidth: 2.5,
+        pointRadius: 0,
+        fill: true,
+        backgroundColor: "rgba(195,154,72,0.10)",
+        tension: 0.1,
+        segment: {
+          borderColor: (ctx) => (ctx.p0.parsed.y < 0 || ctx.p1.parsed.y < 0) ? "#C25C50" : "#C39A48",
+        },
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, autoSkip: false, maxRotation: 0, callback: (v, i) => cfYearBoundaryLabel(res.months, i) },
+          grid: { color: "#1E2530" },
+        },
+        y: {
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } },
+          grid: { color: cfZeroLineGrid },
+        },
+      },
+    },
+  });
+
+  if (cfNetFlowChart) cfNetFlowChart.destroy();
+  cfNetFlowChart = new Chart(document.getElementById("cfNetFlowChart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Чистый поток",
+        data: res.netFlow,
+        backgroundColor: res.netFlow.map((v) => (v < 0 ? "rgba(194,92,80,0.65)" : "rgba(76,123,147,0.65)")),
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 }, autoSkip: false, maxRotation: 0, callback: (v, i) => cfYearBoundaryLabel(res.months, i) },
+          grid: { color: "#1E2530" },
+        },
+        y: {
+          ticks: { color: "#7C8798", font: { family: "IBM Plex Mono", size: 10 } },
+          grid: { color: cfZeroLineGrid },
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Группировка строго по реальным календарным годам (не "12 месяцев от
+ * старта") — первый/последний год горизонта обычно неполные, это подписано
+ * явно. Строка года свёрнута по умолчанию, клик разворачивает месяцы.
+ */
+function cfRenderYearTable(res) {
+  const tbody = document.getElementById("cfYearTableBody");
+  tbody.innerHTML = "";
+
+  const byYear = {};
+  res.months.forEach((monthIdx, i) => {
+    const y = cfCalendarYearOf(monthIdx);
+    if (!byYear[y]) byYear[y] = [];
+    byYear[y].push(i);
+  });
+  const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+
+  years.forEach((year) => {
+    const idxs = byYear[year];
+    const yIncome = idxs.reduce((s, i) => s + res.incArr[i], 0);
+    const yExpense = idxs.reduce((s, i) => s + res.expArr[i], 0);
+    const yBalance = res.cum[idxs[idxs.length - 1]];
+    const isPartial = idxs.length < 12;
+
+    const yearTr = document.createElement("tr");
+    yearTr.className = "cf-year-row";
+    yearTr.innerHTML = `
+      <td>${year}${isPartial ? ` (неполный, ${idxs.length} мес.)` : ""}</td>
+      <td class="num">${fmtEUR(yIncome)}</td>
+      <td class="num">${fmtEUR(yExpense)}</td>
+      <td class="num ${signClass(yBalance)}">${fmtEUR(yBalance)}</td>`;
+    tbody.appendChild(yearTr);
+
+    const monthRows = [];
+    idxs.forEach((i) => {
+      const monthTr = document.createElement("tr");
+      monthTr.className = "cf-month-row is-hidden";
+      monthTr.innerHTML = `
+        <td>${cfYmToLabel(res.months[i])}</td>
+        <td class="num">${fmtEUR(res.incArr[i])}</td>
+        <td class="num">${fmtEUR(res.expArr[i])}</td>
+        <td class="num ${signClass(res.cum[i])}">${fmtEUR(res.cum[i])}</td>`;
+      tbody.appendChild(monthTr);
+      monthRows.push(monthTr);
+    });
+
+    yearTr.addEventListener("click", () => {
+      const expanded = yearTr.classList.toggle("is-expanded");
+      monthRows.forEach((r) => r.classList.toggle("is-hidden", !expanded));
+    });
+  });
+}
+
+function cfSaveState() {
+  localStorage.setItem(CF_STORAGE_KEY, JSON.stringify({
+    settings: cfSettings,
+    incomeEvents: cfIncomeEvents,
+    expenseEvents: cfExpenseEvents,
+    dividendsByYear: cfDividendsByYear,
+  }));
+}
+
+function cfLoadState() {
+  try {
+    const raw = localStorage.getItem(CF_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.settings) Object.assign(cfSettings, data.settings);
+    if (Array.isArray(data.incomeEvents)) cfIncomeEvents = data.incomeEvents;
+    if (Array.isArray(data.expenseEvents)) cfExpenseEvents = data.expenseEvents;
+    if (Array.isArray(data.dividendsByYear)) cfDividendsByYear = data.dividendsByYear;
+  } catch (e) { /* повреждённые данные в localStorage — просто игнорируем, останутся дефолты */ }
+}
+
+function cfApplySettingsToDom() {
+  document.getElementById("cfStartDate").value = cfSettings.startDate;
+  document.getElementById("cfMoveInDate").value = cfSettings.moveInDate;
+  document.getElementById("cfStartReserve").value = cfSettings.startReserve;
+  document.getElementById("cfDownPaymentAmount").value = cfSettings.downPaymentAmount;
+  document.getElementById("cfDownPaymentDate").value = cfSettings.downPaymentDate;
+  document.getElementById("cfBaseIncome").value = cfSettings.baseIncome;
+  document.getElementById("cfBaseExpense").value = cfSettings.baseExpense;
+}
+
+function cfReadSettingsFromDom() {
+  cfSettings.startDate = document.getElementById("cfStartDate").value || cfSettings.startDate;
+  cfSettings.moveInDate = document.getElementById("cfMoveInDate").value || cfSettings.moveInDate;
+  cfSettings.startReserve = parseNum(document.getElementById("cfStartReserve").value) || 0;
+  cfSettings.downPaymentAmount = parseNum(document.getElementById("cfDownPaymentAmount").value) || 0;
+  cfSettings.downPaymentDate = document.getElementById("cfDownPaymentDate").value || cfSettings.downPaymentDate;
+  cfSettings.baseIncome = parseNum(document.getElementById("cfBaseIncome").value) || 0;
+  cfSettings.baseExpense = parseNum(document.getElementById("cfBaseExpense").value) || 0;
+}
+
+function cfRenderDividends() {
+  const grid = document.getElementById("cfDividendsGrid");
+  grid.innerHTML = "";
+  cfDividendsByYear.forEach((val, i) => {
+    const year = cfDividendYear(i);
+    const label = document.createElement("label");
+    label.className = "pension-input";
+    label.innerHTML = `<span class="figure-label">${year}, €</span><input type="number" step="100" value="${val}" />`;
+    const input = label.querySelector("input");
+    input.addEventListener("change", () => { cfDividendsByYear[i] = parseNum(input.value) || 0; cfFullRender(); });
+    grid.appendChild(label);
+  });
+}
+
+function cfRenderEventsTable(events, tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  tbody.innerHTML = "";
+  events.forEach((ev, i) => {
+    const startDisabled = ev.linked === "downPayment";
+    const endDisabled = ev.linked === "moveIn";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input type="text" value="${bgEsc(ev.name)}" /></td>
+      <td class="num"><input type="number" step="10" value="${ev.amount}" /></td>
+      <td>
+        <select>
+          <option value="monthly" ${ev.freq === "monthly" ? "selected" : ""}>в месяц</option>
+          <option value="annual" ${ev.freq === "annual" ? "selected" : ""}>в год</option>
+          <option value="once" ${ev.freq === "once" ? "selected" : ""}>разово</option>
+        </select>
+      </td>
+      <td>${startDisabled ? '<span class="cf-linked-badge">🔗 дата взноса</span>' : `<input type="month" value="${ev.start || ""}" />`}</td>
+      <td>${endDisabled ? '<span class="cf-linked-badge">🔗 до переезда</span>' : `<input type="month" value="${ev.end || ""}" />`}</td>
+      <td><button class="budget-rm-btn" title="Удалить">✕</button></td>`;
+
+    const nameEl = tr.querySelector('input[type="text"]');
+    const amountEl = tr.querySelector('input[type="number"]');
+    const freqEl = tr.querySelector("select");
+    const monthInputs = tr.querySelectorAll('input[type="month"]');
+
+    nameEl.addEventListener("input", () => { ev.name = nameEl.value; cfSaveState(); });
+    amountEl.addEventListener("change", () => { ev.amount = parseNum(amountEl.value) || 0; cfFullRender(); });
+    freqEl.addEventListener("change", () => { ev.freq = freqEl.value; cfFullRender(); });
+    if (!startDisabled) {
+      monthInputs[0].addEventListener("change", () => { ev.start = monthInputs[0].value; cfFullRender(); });
+    }
+    if (!endDisabled) {
+      const endEl = monthInputs[monthInputs.length - 1];
+      endEl.addEventListener("change", () => { ev.end = endEl.value || null; cfFullRender(); });
+    }
+    tr.querySelector(".budget-rm-btn").addEventListener("click", () => {
+      events.splice(i, 1);
+      cfRenderEventsTable(events, tbodyId);
+      cfFullRender();
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function cfFullRender() {
+  cfReadSettingsFromDom();
+  const res = cfRecalc();
+  cfRenderKpis(res);
+  cfRenderCharts(res);
+  cfRenderYearTable(res);
+  cfSaveState();
+}
+
+function wireCashflowInputs() {
+  cfLoadState();
+  cfApplySettingsToDom();
+
+  const settingsIds = ["cfStartDate", "cfMoveInDate", "cfStartReserve", "cfDownPaymentAmount", "cfDownPaymentDate", "cfBaseIncome", "cfBaseExpense"];
+  settingsIds.forEach((id) => {
+    document.getElementById(id).addEventListener("change", () => {
+      cfFullRender();
+      cfRenderDividends();
+    });
+  });
+
+  document.getElementById("cfAddIncomeEventBtn").addEventListener("click", () => {
+    cfIncomeEvents.push({ name: "Новый доход", amount: 0, freq: "monthly", start: cfSettings.startDate, end: null, linked: null });
+    cfRenderEventsTable(cfIncomeEvents, "cfIncomeEventsBody");
+    cfFullRender();
+  });
+  document.getElementById("cfAddExpenseEventBtn").addEventListener("click", () => {
+    cfExpenseEvents.push({ name: "Новая затрата", amount: 0, freq: "monthly", start: cfSettings.startDate, end: null, linked: null });
+    cfRenderEventsTable(cfExpenseEvents, "cfExpenseEventsBody");
+    cfFullRender();
+  });
+
+  cfRenderEventsTable(cfIncomeEvents, "cfIncomeEventsBody");
+  cfRenderEventsTable(cfExpenseEvents, "cfExpenseEventsBody");
+  cfRenderDividends();
+  cfFullRender();
+}
+
+/* -------------------------- Сохранение полей "Пенсия Алена" между открытиями (localStorage) -------------------------- */
+
+const PENSION_ALENA_STORAGE_KEY = "pensionAlena_inputs_v1";
+const PENSION_ALENA_FIELD_IDS = [
+  "bPAge", "bPRetireAge", "bPEndAge", "bPNominalReturn", "bPInflation", "bPWithdrawRate", "bPAnnualContribution",
+  "bDeYearsWorked", "bDeSalaryGross", "bPpContrib", "bPpFullPayout", "bCiTargetMonthly",
+];
+
+function loadPensionAlenaInputs() {
+  try {
+    const raw = localStorage.getItem(PENSION_ALENA_STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    PENSION_ALENA_FIELD_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && data[id] !== undefined) el.value = data[id];
+    });
+  } catch (e) { /* повреждённые данные в localStorage — просто игнорируем */ }
+}
+
+function savePensionAlenaInputs() {
+  const data = {};
+  PENSION_ALENA_FIELD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) data[id] = el.value;
+  });
+  localStorage.setItem(PENSION_ALENA_STORAGE_KEY, JSON.stringify(data));
+}
+
+function wirePensionAlenaPersistence() {
+  PENSION_ALENA_FIELD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", savePensionAlenaInputs);
+  });
+}
+
 /* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -2533,6 +2991,7 @@ document.addEventListener("DOMContentLoaded", () => {
   PROFILES.forEach((p) => p.wireInteractions());
   wireRealEstateInputs();
   wireBudgetInputs();
+  wireCashflowInputs();
   syncCurrencyButtons();
 
   initGis();

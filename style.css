@@ -636,6 +636,54 @@ input[type="range"]::-moz-range-thumb {
 }
 .budget-group-total { font-family: var(--font-mono); font-size: 14px; color: var(--text-muted); white-space: nowrap; }
 
+/* ---------------- Cash flow 15-year planner ---------------- */
+.cf-settings-panel { grid-column: span 12; }
+.cf-settings-grid { grid-template-columns: repeat(3, 1fr); margin-bottom: 4px; }
+.cf-downpayment-block {
+  margin: 18px 0 4px;
+  padding: 14px 16px 4px;
+  border: 1px solid var(--accent-brass-dim);
+  border-radius: var(--radius);
+  background: rgba(195, 154, 72, 0.06);
+}
+.cf-downpayment-block .params-block-label { border-bottom-color: var(--accent-brass-dim); color: var(--accent-brass); }
+
+.cf-events-panel { grid-column: span 6; }
+.cf-events-table th, .cf-events-table td { font-size: 12.5px; }
+.cf-events-table input[type="text"] {
+  width: 100%; border: none; background: transparent; color: var(--text-primary);
+  font-family: var(--font-body); font-size: 12.5px; padding: 4px 2px; border-radius: 3px;
+}
+.cf-events-table input[type="text"]:focus { background: var(--surface-raised); outline: none; }
+.cf-events-table input[type="number"] {
+  width: 78px; border: 1px solid var(--hairline); background: var(--surface-raised); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 12.5px; padding: 4px 6px; border-radius: 3px; text-align: right;
+}
+.cf-events-table input[type="month"] {
+  width: 108px; border: 1px solid var(--hairline); background: var(--surface-raised); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 12px; padding: 3px 5px; border-radius: 3px;
+}
+.cf-events-table select {
+  border: 1px solid var(--hairline); background: var(--surface-raised); color: var(--text-primary);
+  font-family: var(--font-body); font-size: 12px; padding: 4px 4px; border-radius: 3px;
+}
+.cf-events-table input:disabled, .cf-events-table select:disabled { background: transparent; color: var(--text-faint); border-color: transparent; }
+.cf-linked-badge {
+  font-size: 10px; color: var(--accent-brass); border: 1px solid var(--accent-brass-dim);
+  border-radius: 3px; padding: 2px 5px; white-space: nowrap; display: inline-block;
+}
+
+.cf-dividends-panel { grid-column: span 12; }
+.cf-kpi-panel { grid-column: span 12; }
+
+.cf-year-row { cursor: pointer; }
+.cf-year-row:hover { background: var(--surface-raised); }
+.cf-year-row td:first-child::before { content: "▸ "; color: var(--text-faint); }
+.cf-year-row.is-expanded td:first-child::before { content: "▾ "; }
+.cf-month-row td:first-child { padding-left: 26px; }
+.cf-month-row { color: var(--text-muted); font-size: 12.5px; }
+.cf-month-row.is-hidden { display: none; }
+
 .re-milestone-panel { grid-column: span 12; }
 .re-milestone-panel .pension-kpi-panel { margin-bottom: 16px; }
 .re-whatif-combined-panel { grid-column: span 12; }

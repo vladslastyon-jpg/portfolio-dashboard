@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=19" />
+<link rel="stylesheet" href="style.css?v=20" />
 </head>
 <body>
 
@@ -51,6 +51,7 @@
   <div class="tab-nav-group">
     <button class="tab-btn" data-tab="realEstate">Недвижимость</button>
     <button class="tab-btn" data-tab="budget">Бюджет</button>
+    <button class="tab-btn" data-tab="cashflow">Кэш-флоу 15 лет</button>
   </div>
   <div class="tab-nav-group">
     <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
@@ -919,6 +920,142 @@
 
 </div>
 
+<div id="tabCashflow" class="tab-panel app-grid" data-tab="cashflow" hidden>
+
+  <section class="panel cf-settings-panel" aria-label="Настройки расчёта">
+    <div class="panel-header">
+      <h2>Семейный кэш-флоу на 15 лет</h2>
+      <span class="panel-note">180 месяцев · поиск кассовых разрывов · всё сохраняется автоматически</span>
+    </div>
+    <div class="re-inputs-grid cf-settings-grid">
+      <label class="pension-input">
+        <span class="figure-label">Начало расчёта</span>
+        <input type="month" id="cfStartDate" value="2026-07" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Дата переезда в свою квартиру</span>
+        <input type="month" id="cfMoveInDate" value="2033-07" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Стартовый резерв, €</span>
+        <input type="number" id="cfStartReserve" value="20000" min="0" step="1000" />
+      </label>
+    </div>
+
+    <div class="cf-downpayment-block">
+      <div class="params-block-label">Первоначальный взнос по кредиту</div>
+      <div class="re-inputs-grid cf-settings-grid">
+        <label class="pension-input">
+          <span class="figure-label">Сумма взноса, €</span>
+          <input type="number" id="cfDownPaymentAmount" value="100000" min="0" step="5000" />
+        </label>
+        <label class="pension-input">
+          <span class="figure-label">Дата взноса (=дата кредита)</span>
+          <input type="month" id="cfDownPaymentDate" value="2026-07" />
+        </label>
+      </div>
+    </div>
+
+    <div class="params-block-label">Базовый бюджет (всё, что не в списках ниже)</div>
+    <div class="re-inputs-grid cf-settings-grid">
+      <label class="pension-input">
+        <span class="figure-label">Базовый доход, €/мес</span>
+        <input type="number" id="cfBaseIncome" value="6600" min="0" step="100" />
+      </label>
+      <label class="pension-input">
+        <span class="figure-label">Базовый расход, €/мес</span>
+        <input type="number" id="cfBaseExpense" value="4200" min="0" step="100" />
+      </label>
+    </div>
+  </section>
+
+  <section class="panel cf-events-panel" aria-label="Доходы с датами">
+    <div class="panel-header">
+      <h2>Доходы (с датами)</h2>
+    </div>
+    <table class="ledger-table cf-events-table">
+      <thead>
+        <tr><th>Название</th><th class="num">Сумма, €</th><th>Частота</th><th>Начало</th><th>Конец</th><th></th></tr>
+      </thead>
+      <tbody id="cfIncomeEventsBody"></tbody>
+    </table>
+    <button class="add-row-btn" id="cfAddIncomeEventBtn">+ доход с датой</button>
+  </section>
+
+  <section class="panel cf-events-panel" aria-label="Затраты с датами">
+    <div class="panel-header">
+      <h2>Затраты (с датами)</h2>
+    </div>
+    <table class="ledger-table cf-events-table">
+      <thead>
+        <tr><th>Название</th><th class="num">Сумма, €</th><th>Частота</th><th>Начало</th><th>Конец</th><th></th></tr>
+      </thead>
+      <tbody id="cfExpenseEventsBody"></tbody>
+    </table>
+    <button class="add-row-btn" id="cfAddExpenseEventBtn">+ затрата с датой</button>
+  </section>
+
+  <section class="panel cf-dividends-panel" aria-label="Дивиденды по годам">
+    <div class="panel-header">
+      <h2>Дивиденды — по годам</h2>
+      <span class="panel-note">начисляются целиком в декабре указанного года</span>
+    </div>
+    <div class="re-inputs-grid cf-settings-grid" id="cfDividendsGrid"></div>
+  </section>
+
+  <section class="panel pension-kpi-panel cf-kpi-panel" aria-label="KPI кэш-флоу">
+    <div class="kpi-cell">
+      <div class="kpi-label">Остаток на конец 15 лет</div>
+      <div class="kpi-value" id="cfKpiEndReserve">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Минимальная точка резерва</div>
+      <div class="kpi-value" id="cfKpiMinReserve">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Месяцев с разрывом</div>
+      <div class="kpi-value" id="cfKpiGapMonths">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Взнос: накоплено vs нужно</div>
+      <div class="kpi-value" id="cfKpiDownPayment">—</div>
+    </div>
+  </section>
+
+  <section class="panel chart-panel" aria-label="Резерв нарастающим итогом">
+    <div class="panel-header">
+      <h2>Резерв нарастающим итогом</h2>
+    </div>
+    <div class="chart-canvas-wrap chart-canvas-wrap--tall"><canvas id="cfReserveChart"></canvas></div>
+  </section>
+
+  <section class="panel chart-panel" aria-label="Чистый поток по месяцам">
+    <div class="panel-header">
+      <h2>Чистый поток по месяцам</h2>
+    </div>
+    <div class="chart-canvas-wrap"><canvas id="cfNetFlowChart"></canvas></div>
+  </section>
+
+  <section class="panel pension-table-panel" aria-label="Таблица по годам/месяцам">
+    <div class="panel-header">
+      <h2>По годам / месяцам</h2>
+      <span class="panel-note">клик по году — развернуть месяцы</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table" id="cfYearTable">
+        <thead>
+          <tr><th>Период</th><th class="num">Доходы, €</th><th class="num">Затраты, €</th><th class="num">Сальдо на конец периода, €</th></tr>
+        </thead>
+        <tbody id="cfYearTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
 </main>
 
 <div id="signedOutHint" class="signed-out-hint">
@@ -930,6 +1067,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
