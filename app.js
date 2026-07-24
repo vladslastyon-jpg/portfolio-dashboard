@@ -671,13 +671,13 @@ function computePrivatePension() {
   const contractYears = parseNum(document.getElementById(pid("ppContractYears")).value) || 1;
   const fullPayout = parseNum(document.getElementById(pid("ppFullPayout")).value) || 0;
   const yearsWorked = parseNum(document.getElementById(pid("deYearsWorked")).value) || 0;
-  const retireAge = parseNum(document.getElementById(pid("pRetireAge")).value) || 60;
 
   const contribNow = employeeContrib + employerContrib;
   const progressFraction = contractYears > 0 ? Math.min(1, yearsWorked / contractYears) : 0;
   const actualPayout = fullPayout * progressFraction;
 
-  return { contribNow, progressFraction, actualPayout, payoutAge: retireAge };
+  // Выплачивается с того же возраста, что и гос. пенсия (67 лет).
+  return { contribNow, progressFraction, actualPayout, payoutAge: DE_PENSION_REF.payoutAge };
 }
 
 function renderPrivatePension() {
@@ -747,19 +747,23 @@ function renderCombinedWhatIf() {
   const pp = computePrivatePension();
   const sp = computeStatePension();
   const proj = computePensionProjection();
+  const inputs = getPensionInputs();
   const target = parseNum(document.getElementById(pid("ciTargetMonthly")).value) || 0;
 
+  // Гос. и приват. пенсия обе начинаются с одного возраста (67) — до этого
+  // весь целевой доход целиком идёт из инвестиций, после 67 — только остаток.
   const coveredByPensions = pp.actualPayout + sp.monthlyPension;
-  const gapBeforeState = Math.max(0, target - pp.actualPayout);
-  const gapAfterState = Math.max(0, target - coveredByPensions);
+  const gapBeforePayout = target;
+  const gapAfterPayout = Math.max(0, target - coveredByPensions);
 
+  document.getElementById(pid("ciGapBeforeStateLabel")).textContent = `Нужно из инвестиций (до ${sp.payoutAge}), €/мес`;
   document.getElementById(pid("ciCoveredByPensions")).textContent = fmtMoney(coveredByPensions) + "/мес";
-  document.getElementById(pid("ciGapBeforeState")).textContent = fmtMoney(gapBeforeState) + "/мес";
-  document.getElementById(pid("ciGapAfterState")).textContent = fmtMoney(gapAfterState) + "/мес";
+  document.getElementById(pid("ciGapBeforeState")).textContent = fmtMoney(gapBeforePayout) + "/мес";
+  document.getElementById(pid("ciGapAfterState")).textContent = fmtMoney(gapAfterPayout) + "/мес";
 
   const capitalAtRetire = proj.projected;
   document.getElementById(pid("ciCapitalNote")).textContent = capitalAtRetire > 0
-    ? `${fmtMoney(capitalAtRetire)} на момент выхода на пенсию`
+    ? `${fmtMoney(capitalAtRetire)} на момент выхода на пенсию (${inputs.retireAge} лет)`
     : "—";
 }
 
