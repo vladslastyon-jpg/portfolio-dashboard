@@ -2136,7 +2136,7 @@ const GOAL_DEFS = [
   { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", getAutoFact: () => mainProfile.getGoalSummary().total },
   { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", getAutoFact: () => alenaProfile.getGoalSummary().total },
   { id: "apartment", title: "Квартира", plan: 200000, symbol: "€" },
-  { id: "cushion", title: "Подушка", plan: 40000, symbol: "€" },
+  { id: "cushion", title: "Подушка", plan: 20000, symbol: "€" },
 ];
 
 function loadManualGoalFacts() {
