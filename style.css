@@ -420,16 +420,6 @@ body {
   letter-spacing: 0.06em;
   min-height: 16px;
 }
-.goal-jar-fact-value {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .goal-jar-fact-input {
   width: 100%;
   min-height: 36px;

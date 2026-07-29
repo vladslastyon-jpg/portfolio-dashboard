@@ -334,7 +334,6 @@ async function fetchAll() {
 
     computeAll();
     renderAll();
-    if (typeof renderOverallTab === "function") renderOverallTab();
 
     document.getElementById("app").hidden = false;
     const now = new Date();
@@ -2065,17 +2064,6 @@ return {
   hasData: () => !!derived.kpi,
   getCurrency: () => profileCurrency,
   setCurrency,
-  // Факт для вкладки "Общий": если есть план (Portfolio500k) — берём его
-  // "текущий итог" (уже включает кэш), иначе рыночная стоимость + кэш.
-  // До первой загрузки данных (derived.kpi ещё нет) — total: null, чтобы
-  // вкладка "Общий" не считала эту цель в общей сумме.
-  getGoalSummary: () => {
-    if (!derived.kpi) return { total: null };
-    if (hasPlan && derived.planActual && derived.planActual.currentTotal !== null && derived.planActual.currentTotal !== undefined) {
-      return { total: derived.planActual.currentTotal };
-    }
-    return { total: (derived.kpi.marketValue || 0) + (getCashValue() || 0) };
-  },
 };
 }
 
@@ -2130,12 +2118,12 @@ let activeTab = "portfolio";
 
 const GOALS_MANUAL_STORAGE_KEY = "goals_manual_facts_v1";
 
-// mode "auto" — факт считается из профиля (getGoalSummary), mode "manual" — вводится руками и лежит в localStorage.
+// Факт по всем 4 целям вводится вручную и хранится в localStorage.
 const GOAL_DEFS = [
-  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", mode: "auto", getFact: () => mainProfile.getGoalSummary().total },
-  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", mode: "auto", getFact: () => alenaProfile.getGoalSummary().total },
-  { id: "apartment", title: "Квартира", plan: 200000, symbol: "€", mode: "manual" },
-  { id: "cushion", title: "Подушка", plan: 40000, symbol: "€", mode: "manual" },
+  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$" },
+  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€" },
+  { id: "apartment", title: "Квартира", plan: 200000, symbol: "€" },
+  { id: "cushion", title: "Подушка", plan: 40000, symbol: "€" },
 ];
 
 function loadManualGoalFacts() {
@@ -2164,36 +2152,24 @@ function renderOverallTab() {
   let sumPlan = 0;
 
   GOAL_DEFS.forEach((g) => {
-    let fact;
-    if (g.mode === "auto") {
-      fact = g.getFact();
-    } else {
-      const saved = manualGoalFacts[g.id];
-      fact = (saved === undefined || saved === null || isNaN(saved)) ? 0 : saved;
-    }
+    const saved = manualGoalFacts[g.id];
+    const fact = (saved === undefined || saved === null || isNaN(saved)) ? 0 : saved;
 
     const planEl = document.getElementById("goalPlan_" + g.id);
     if (planEl) planEl.textContent = fmtGoalMoney(g.plan, g.symbol);
 
-    if (g.mode === "auto") {
-      const factEl = document.getElementById("goalFactValue_" + g.id);
-      if (factEl) factEl.textContent = fmtGoalMoney(fact, g.symbol);
-    }
-    // для manual-целей значение показывает сам <input>, его не перезаписываем при каждом рендере
+    // значение факта показывает сам <input> (wireOverallInputs), здесь его не перезаписываем
 
     const fillEl = document.getElementById("goalFill_" + g.id);
     if (fillEl) {
-      const hasFact = fact !== null && fact !== undefined && !isNaN(fact);
-      const pct = hasFact && g.plan > 0 ? Math.max(0, Math.min(100, (fact / g.plan) * 100)) : 0;
+      const pct = g.plan > 0 ? Math.max(0, Math.min(100, (fact / g.plan) * 100)) : 0;
       const fillH = (pct / 100) * GOAL_JAR_VIEWBOX_H;
       fillEl.setAttribute("y", String(GOAL_JAR_VIEWBOX_Y0 + (GOAL_JAR_VIEWBOX_H - fillH)));
       fillEl.setAttribute("height", String(fillH));
     }
 
-    if (fact !== null && fact !== undefined && !isNaN(fact)) {
-      sumFact += fact;
-      sumPlan += g.plan;
-    }
+    sumFact += fact;
+    sumPlan += g.plan;
   });
 
   const pctEl = document.getElementById("goalOverallPct");
@@ -2201,17 +2177,15 @@ function renderOverallTab() {
   const fillBar = document.getElementById("goalOverallFill");
   const overallPct = sumPlan > 0 ? (sumFact / sumPlan) * 100 : 0;
 
-  if (pctEl) pctEl.textContent = sumPlan > 0 ? `${overallPct.toFixed(1)}%` : "—";
+  if (pctEl) pctEl.textContent = `${overallPct.toFixed(1)}%`;
   if (capEl) {
-    capEl.textContent = sumPlan > 0
-      ? `${Math.round(sumFact).toLocaleString("en-US")} из ${Math.round(sumPlan).toLocaleString("en-US")} (условно, без пересчёта валют)`
-      : "нет данных";
+    capEl.textContent = `${Math.round(sumFact).toLocaleString("en-US")} из ${Math.round(sumPlan).toLocaleString("en-US")} (условно, без пересчёта валют)`;
   }
   if (fillBar) fillBar.style.width = Math.min(100, Math.max(0, overallPct)) + "%";
 }
 
 function wireOverallInputs() {
-  GOAL_DEFS.filter((g) => g.mode === "manual").forEach((g) => {
+  GOAL_DEFS.forEach((g) => {
     const inp = document.getElementById("goalFactInput_" + g.id);
     if (!inp) return;
     const saved = manualGoalFacts[g.id];

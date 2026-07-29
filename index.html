@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=21" />
+<link rel="stylesheet" href="style.css?v=22" />
 </head>
 <body>
 
@@ -85,7 +85,7 @@
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_pension">—</div>
           <div class="goal-jar-fact-label">Факт (USD)</div>
-          <div class="goal-jar-fact-value" id="goalFactValue_pension">—</div>
+          <input class="goal-jar-fact-input" type="number" id="goalFactInput_pension" min="0" step="1000" placeholder="0" />
         </div>
       </div>
 
@@ -102,7 +102,7 @@
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_education">—</div>
           <div class="goal-jar-fact-label">Факт (EUR)</div>
-          <div class="goal-jar-fact-value" id="goalFactValue_education">—</div>
+          <input class="goal-jar-fact-input" type="number" id="goalFactInput_education" min="0" step="1000" placeholder="0" />
         </div>
       </div>
 
@@ -1163,6 +1163,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>
