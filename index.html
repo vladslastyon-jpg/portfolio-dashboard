@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=28" />
+<link rel="stylesheet" href="style.css?v=29" />
 </head>
 <body>
 
@@ -87,15 +87,12 @@
           <div class="goal-jar-plan" id="goalPlan_pension">—</div>
 
           <div class="goal-jar-section">
-            <div class="goal-jar-fact-label">Факт (система)</div>
+            <div class="goal-jar-fact-label">Факт</div>
             <div class="goal-jar-auto-value" id="goalAutoValue_pension">—</div>
-            <div class="goal-jar-sub-pct" id="goalAutoPct_pension">—</div>
           </div>
 
           <div class="goal-jar-section goal-jar-section--manual">
-            <div class="goal-jar-fact-label">+ вручную (USD)</div>
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_pension" min="0" step="1000" placeholder="0" />
-            <div class="goal-jar-sub-pct goal-jar-sub-pct--manual" id="goalManualPct_pension">—</div>
+            <input class="goal-jar-fact-input" type="number" id="goalFactInput_pension" min="0" step="1000" placeholder="0" aria-label="Добавить вручную, USD" />
           </div>
 
           <div class="goal-jar-total-row">
@@ -120,15 +117,12 @@
           <div class="goal-jar-plan" id="goalPlan_education">—</div>
 
           <div class="goal-jar-section">
-            <div class="goal-jar-fact-label">Факт (система)</div>
+            <div class="goal-jar-fact-label">Факт</div>
             <div class="goal-jar-auto-value" id="goalAutoValue_education">—</div>
-            <div class="goal-jar-sub-pct" id="goalAutoPct_education">—</div>
           </div>
 
           <div class="goal-jar-section goal-jar-section--manual">
-            <div class="goal-jar-fact-label">+ вручную (EUR)</div>
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_education" min="0" step="1000" placeholder="0" />
-            <div class="goal-jar-sub-pct goal-jar-sub-pct--manual" id="goalManualPct_education">—</div>
+            <input class="goal-jar-fact-input" type="number" id="goalFactInput_education" min="0" step="1000" placeholder="0" aria-label="Добавить вручную, EUR" />
           </div>
 
           <div class="goal-jar-total-row">
@@ -151,9 +145,11 @@
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_apartment">—</div>
           <div class="goal-jar-section goal-jar-section--manual goal-jar-section--first">
-            <div class="goal-jar-fact-label">Факт (EUR)</div>
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_apartment" min="0" step="1000" placeholder="0" />
-            <div class="goal-jar-sub-pct goal-jar-sub-pct--manual" id="goalManualPct_apartment">—</div>
+            <input class="goal-jar-fact-input" type="number" id="goalFactInput_apartment" min="0" step="1000" placeholder="0" aria-label="Факт, EUR" />
+          </div>
+          <div class="goal-jar-total-row">
+            <span class="goal-jar-total-label">Итого</span>
+            <span class="goal-jar-total-pct" id="goalTotalPct_apartment">—</span>
           </div>
         </div>
       </div>
@@ -171,9 +167,11 @@
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_cushion">—</div>
           <div class="goal-jar-section goal-jar-section--manual goal-jar-section--first">
-            <div class="goal-jar-fact-label">Факт (EUR)</div>
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_cushion" min="0" step="1000" placeholder="0" />
-            <div class="goal-jar-sub-pct goal-jar-sub-pct--manual" id="goalManualPct_cushion">—</div>
+            <input class="goal-jar-fact-input" type="number" id="goalFactInput_cushion" min="0" step="1000" placeholder="0" aria-label="Факт, EUR" />
+          </div>
+          <div class="goal-jar-total-row">
+            <span class="goal-jar-total-label">Итого</span>
+            <span class="goal-jar-total-pct" id="goalTotalPct_cushion">—</span>
           </div>
         </div>
       </div>
@@ -1215,6 +1213,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=28"></script>
+<script src="app.js?v=29"></script>
 </body>
 </html>

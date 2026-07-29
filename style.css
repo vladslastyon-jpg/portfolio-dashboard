@@ -456,13 +456,6 @@ body {
 .goal-jar-fact-input:focus { outline: none; border-color: var(--accent-goal); }
 .goal-jar-section--first .goal-jar-fact-input { border-color: var(--hairline); }
 .goal-jar-section--first .goal-jar-fact-input:focus { border-color: var(--accent-goal); }
-.goal-jar-sub-pct {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.goal-jar-sub-pct--manual { color: var(--accent-goal-light); }
 .goal-jar-total-row {
   width: 100%;
   display: flex;

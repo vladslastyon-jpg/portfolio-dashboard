@@ -2162,7 +2162,6 @@ function fmtGoalMoney(value, symbol) {
   return `${symbol}${Math.round(value).toLocaleString("en-US")}`;
 }
 function fmtGoalPct(pct) { return `${pct.toFixed(1)}%`; }
-function fmtGoalPctSigned(pct) { return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`; }
 
 // Высота видимой (закруглённой) области банки во viewBox SVG — должна совпадать
 // с rect'ами в index.html (x=2 y=2 width=96 height=156).
@@ -2187,17 +2186,14 @@ function renderOverallTab() {
     const manualPct = g.plan > 0 ? (manual / g.plan) * 100 : 0;
     const totalPct = autoPct + manualPct;
 
+    // "Итого" (факт + введено вручную, в % плана) — общее для всех 4 целей.
+    const totalPctEl = document.getElementById("goalTotalPct_" + g.id);
+    if (totalPctEl) totalPctEl.textContent = fmtGoalPct(totalPct);
+
     if (g.getAutoFact) {
-      // Пенсия / Обучение: два слоя в банке (система снизу, ручное сверху) + 3 показателя в %.
+      // Пенсия / Обучение: два слоя в банке (система снизу, ручное сверху).
       const autoValueEl = document.getElementById("goalAutoValue_" + g.id);
       if (autoValueEl) autoValueEl.textContent = rawAuto === null ? "—" : fmtGoalMoney(auto, g.symbol);
-      const autoPctEl = document.getElementById("goalAutoPct_" + g.id);
-      if (autoPctEl) autoPctEl.textContent = rawAuto === null ? "" : `${fmtGoalPct(autoPct)} плана`;
-
-      const manualPctEl = document.getElementById("goalManualPct_" + g.id);
-      if (manualPctEl) manualPctEl.textContent = `${fmtGoalPctSigned(manualPct)} плана`;
-      const totalPctEl = document.getElementById("goalTotalPct_" + g.id);
-      if (totalPctEl) totalPctEl.textContent = fmtGoalPct(totalPct);
 
       const autoFillPct = g.plan > 0 ? Math.max(0, Math.min(100, autoPct)) : 0;
       const manualFillPct = g.plan > 0 ? Math.max(0, Math.min(100 - autoFillPct, manualPct)) : 0;
@@ -2215,10 +2211,7 @@ function renderOverallTab() {
         manualFillEl.setAttribute("height", String(manualFillH));
       }
     } else {
-      // Квартира / Подушка: как раньше — один слой, ручной ввод это весь факт.
-      const manualPctEl = document.getElementById("goalManualPct_" + g.id);
-      if (manualPctEl) manualPctEl.textContent = `${fmtGoalPct(manualPct)} плана`;
-
+      // Квартира / Подушка: один слой, ручной ввод это весь факт (totalPct = manualPct).
       const fillEl = document.getElementById("goalFill_" + g.id);
       if (fillEl) {
         const pct = Math.max(0, Math.min(100, manualPct));
