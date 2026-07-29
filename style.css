@@ -492,35 +492,46 @@ body {
   transition: width 0.9s ease;
 }
 .goal-overall-fill--manual { background: var(--accent-goal-light); }
-.goal-overall-summary {
-  margin-top: 16px;
-  display: flex;
-  align-items: baseline;
-  gap: 28px;
-  flex-wrap: wrap;
+
+/* Подписи под полосой: каждая привязана к своему сегменту через left:X%
+   (считается в JS) и центрируется на нём через translateX(-50%), не сжимаясь
+   по ширине самого сегмента — иначе на узких сегментах текст ломался бы. */
+.goal-overall-labels-wrap {
+  position: relative;
+  width: 100%;
+  height: 74px;
+  margin-top: 14px;
 }
-.goal-overall-metric { display: flex; flex-direction: column; gap: 2px; }
-.goal-overall-metric-label {
+.goal-overall-seg-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.goal-overall-seg-tag {
   font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.goal-overall-pct {
+.goal-overall-seg-sum {
   font-family: var(--font-mono);
-  font-size: 32px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--accent-goal);
   font-variant-numeric: tabular-nums;
 }
-.goal-overall-pct--manual { color: var(--accent-goal-light); font-size: 22px; }
-.goal-overall-pct--total { font-size: 22px; }
-.goal-overall-caption {
+.goal-overall-seg-pct {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-muted);
-  align-self: center;
 }
+.goal-overall-seg-label--manual .goal-overall-seg-sum { color: var(--accent-goal-light); }
+.goal-overall-seg-label--missing .goal-overall-seg-sum { color: var(--text-faint); }
 
 /* Chart panels */
 .chart-panel { grid-column: span 12; }

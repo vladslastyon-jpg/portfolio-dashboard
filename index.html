@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=26" />
+<link rel="stylesheet" href="style.css?v=27" />
 </head>
 <body>
 
@@ -167,20 +167,22 @@
         <div class="goal-overall-fill" id="goalOverallFillAuto"></div>
         <div class="goal-overall-fill goal-overall-fill--manual" id="goalOverallFillManual"></div>
       </div>
-      <div class="goal-overall-summary">
-        <div class="goal-overall-metric">
-          <div class="goal-overall-pct" id="goalOverallAutoPct">—</div>
-          <div class="goal-overall-metric-label">факт</div>
+      <div class="goal-overall-labels-wrap" id="goalOverallLabelsWrap">
+        <div class="goal-overall-seg-label" id="goalOverallSegAuto">
+          <div class="goal-overall-seg-tag">факт</div>
+          <div class="goal-overall-seg-sum" id="goalOverallAutoSum">—</div>
+          <div class="goal-overall-seg-pct" id="goalOverallAutoPct">—</div>
         </div>
-        <div class="goal-overall-metric">
-          <div class="goal-overall-pct goal-overall-pct--manual" id="goalOverallManualPct">—</div>
-          <div class="goal-overall-metric-label">вручную</div>
+        <div class="goal-overall-seg-label goal-overall-seg-label--manual" id="goalOverallSegManual">
+          <div class="goal-overall-seg-tag">вручную</div>
+          <div class="goal-overall-seg-sum" id="goalOverallManualSum">—</div>
+          <div class="goal-overall-seg-pct" id="goalOverallManualPct">—</div>
         </div>
-        <div class="goal-overall-metric">
-          <div class="goal-overall-pct goal-overall-pct--total" id="goalOverallTotalPct">—</div>
-          <div class="goal-overall-metric-label">итого</div>
+        <div class="goal-overall-seg-label goal-overall-seg-label--missing" id="goalOverallSegMissing">
+          <div class="goal-overall-seg-tag">не хватает</div>
+          <div class="goal-overall-seg-sum" id="goalOverallMissingSum">—</div>
+          <div class="goal-overall-seg-pct" id="goalOverallMissingPct">—</div>
         </div>
-        <div class="goal-overall-caption" id="goalOverallCaption">—</div>
       </div>
     </div>
   </section>
@@ -1195,6 +1197,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

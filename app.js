@@ -2234,26 +2234,31 @@ function renderOverallTab() {
   const overallAutoPct = sumPlan > 0 ? (sumAuto / sumPlan) * 100 : 0;
   const overallManualPct = sumPlan > 0 ? (sumManual / sumPlan) * 100 : 0;
   const overallTotalPct = overallAutoPct + overallManualPct;
+  const missingAmount = Math.max(0, sumPlan - sumAuto - sumManual);
+  const missingPct = Math.max(0, 100 - overallTotalPct);
 
-  const autoPctEl = document.getElementById("goalOverallAutoPct");
-  const manualPctEl = document.getElementById("goalOverallManualPct");
-  const totalPctEl = document.getElementById("goalOverallTotalPct");
-  const capEl = document.getElementById("goalOverallCaption");
+  // Ширины сегментов полосы (в %, как в заливке) — по ним же центрируем подписи под ними.
+  const autoBarPct = sumPlan > 0 ? Math.max(0, Math.min(100, overallAutoPct)) : 0;
+  const manualBarPct = sumPlan > 0 ? Math.max(0, Math.min(100 - autoBarPct, overallManualPct)) : 0;
+  const missingBarPct = Math.max(0, 100 - autoBarPct - manualBarPct);
+
   const fillAutoBar = document.getElementById("goalOverallFillAuto");
   const fillManualBar = document.getElementById("goalOverallFillManual");
+  if (fillAutoBar) fillAutoBar.style.width = autoBarPct + "%";
+  if (fillManualBar) fillManualBar.style.width = manualBarPct + "%";
 
-  if (autoPctEl) autoPctEl.textContent = fmtGoalPct(overallAutoPct);
-  if (manualPctEl) manualPctEl.textContent = fmtGoalPctSigned(overallManualPct);
-  if (totalPctEl) totalPctEl.textContent = fmtGoalPct(overallTotalPct);
-  if (capEl) {
-    capEl.textContent = `${fmtGoalMoney(sumAuto + sumManual, "€")} из ${fmtGoalMoney(sumPlan, "€")} (пересчитано в евро)`;
-  }
-  if (fillAutoBar && fillManualBar) {
-    const autoBarPct = sumPlan > 0 ? Math.max(0, Math.min(100, overallAutoPct)) : 0;
-    const manualBarPct = sumPlan > 0 ? Math.max(0, Math.min(100 - autoBarPct, overallManualPct)) : 0;
-    fillAutoBar.style.width = autoBarPct + "%";
-    fillManualBar.style.width = manualBarPct + "%";
-  }
+  setGoalOverallSegment("Auto", autoBarPct / 2, sumAuto, overallAutoPct);
+  setGoalOverallSegment("Manual", autoBarPct + manualBarPct / 2, sumManual, overallManualPct);
+  setGoalOverallSegment("Missing", autoBarPct + manualBarPct + missingBarPct / 2, missingAmount, missingPct);
+}
+
+function setGoalOverallSegment(suffix, centerPct, amountEUR, pct) {
+  const labelEl = document.getElementById("goalOverallSeg" + suffix);
+  const sumEl = document.getElementById("goalOverall" + suffix + "Sum");
+  const pctEl = document.getElementById("goalOverall" + suffix + "Pct");
+  if (labelEl) labelEl.style.left = centerPct + "%";
+  if (sumEl) sumEl.textContent = fmtGoalMoney(amountEUR, "€");
+  if (pctEl) pctEl.textContent = fmtGoalPct(pct);
 }
 
 function wireOverallInputs() {
