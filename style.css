@@ -411,66 +411,80 @@ body {
 }
 .goal-jar-plan {
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: 20px;
   color: var(--text-muted);
-  min-height: 32px;
 }
 .goal-jar-fact-label {
-  font-size: 22px;
+  font-size: 13px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  min-height: 26px;
 }
-.goal-jar-auto-display {
+/* Каждый блок (факт-из-системы / вручную) — своя секция с разделителем сверху,
+   чтобы они читались как отдельные шаги, а не сплошной список цифр. */
+.goal-jar-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.goal-jar-section--first { border-top: none; padding-top: 0; margin-top: 0; }
+.goal-jar-auto-value {
   font-family: var(--font-mono);
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--text-primary);
-  min-height: 34px;
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--accent-goal);
+  line-height: 1.1;
 }
-.goal-jar-manual-row { width: 100%; }
 .goal-jar-fact-input {
   width: 100%;
   min-height: 52px;
   background: var(--surface-raised);
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--accent-goal-light);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 32px;
-  font-weight: 600;
+  font-size: 30px;
+  font-weight: 700;
   text-align: center;
   padding: 8px;
   border-radius: var(--radius);
 }
 .goal-jar-fact-input:focus { outline: none; border-color: var(--accent-goal); }
-.goal-jar-manual-pct {
+.goal-jar-section--first .goal-jar-fact-input { border-color: var(--hairline); }
+.goal-jar-section--first .goal-jar-fact-input:focus { border-color: var(--accent-goal); }
+.goal-jar-sub-pct {
   font-family: var(--font-mono);
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--accent-goal-light);
+  font-size: 14px;
+  color: var(--text-muted);
   white-space: nowrap;
 }
+.goal-jar-sub-pct--manual { color: var(--accent-goal-light); }
 .goal-jar-total-row {
   width: 100%;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-top: 2px;
-  padding-top: 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 12px;
   border-top: 1px solid var(--hairline-soft);
 }
 .goal-jar-total-label {
-  font-size: 22px;
+  font-size: 12px;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 .goal-jar-total-pct {
   font-family: var(--font-mono);
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   color: var(--accent-goal);
+  line-height: 1.1;
 }
 
 .goal-overall-wrap {

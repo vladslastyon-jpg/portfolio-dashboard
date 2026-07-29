@@ -2189,14 +2189,13 @@ function renderOverallTab() {
 
     if (g.getAutoFact) {
       // Пенсия / Обучение: два слоя в банке (система снизу, ручное сверху) + 3 показателя в %.
-      const autoDisplayEl = document.getElementById("goalAutoDisplay_" + g.id);
-      if (autoDisplayEl) {
-        autoDisplayEl.textContent = rawAuto === null
-          ? "—"
-          : `${fmtGoalMoney(auto, g.symbol)} · ${fmtGoalPct(autoPct)}`;
-      }
+      const autoValueEl = document.getElementById("goalAutoValue_" + g.id);
+      if (autoValueEl) autoValueEl.textContent = rawAuto === null ? "—" : fmtGoalMoney(auto, g.symbol);
+      const autoPctEl = document.getElementById("goalAutoPct_" + g.id);
+      if (autoPctEl) autoPctEl.textContent = rawAuto === null ? "" : `${fmtGoalPct(autoPct)} плана`;
+
       const manualPctEl = document.getElementById("goalManualPct_" + g.id);
-      if (manualPctEl) manualPctEl.textContent = fmtGoalPctSigned(manualPct);
+      if (manualPctEl) manualPctEl.textContent = `${fmtGoalPctSigned(manualPct)} плана`;
       const totalPctEl = document.getElementById("goalTotalPct_" + g.id);
       if (totalPctEl) totalPctEl.textContent = fmtGoalPct(totalPct);
 
@@ -2217,6 +2216,9 @@ function renderOverallTab() {
       }
     } else {
       // Квартира / Подушка: как раньше — один слой, ручной ввод это весь факт.
+      const manualPctEl = document.getElementById("goalManualPct_" + g.id);
+      if (manualPctEl) manualPctEl.textContent = `${fmtGoalPct(manualPct)} плана`;
+
       const fillEl = document.getElementById("goalFill_" + g.id);
       if (fillEl) {
         const pct = Math.max(0, Math.min(100, manualPct));
