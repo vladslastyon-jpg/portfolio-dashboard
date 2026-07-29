@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=20" />
+<link rel="stylesheet" href="style.css?v=21" />
 </head>
 <body>
 
@@ -45,6 +45,9 @@
 
 <nav class="tab-nav">
   <div class="tab-nav-group">
+    <button class="tab-btn" data-tab="overall">Общий</button>
+  </div>
+  <div class="tab-nav-group">
     <button class="tab-btn is-active" data-tab="portfolio">Портфель</button>
     <button class="tab-btn" data-tab="pension">Пенсия</button>
   </div>
@@ -58,6 +61,99 @@
     <button class="tab-btn" data-tab="pensionAlena">Пенсия Алена</button>
   </div>
 </nav>
+
+<div id="tabOverall" class="tab-panel app-grid" data-tab="overall" hidden>
+
+  <section class="panel goal-jars-panel" aria-label="Общий прогресс по целям">
+    <div class="panel-header">
+      <h2>Общий прогресс по целям</h2>
+      <span class="panel-note">4 цели · банки заполняются от факта к плану</span>
+    </div>
+
+    <div class="goal-jars-row">
+
+      <div class="goal-jar">
+        <div class="goal-jar-title">Пенсионный портфель</div>
+        <div class="goal-jar-svg-wrap">
+          <svg class="goal-jar-svg" viewBox="0 0 100 160" preserveAspectRatio="none" aria-hidden="true">
+            <defs><clipPath id="goalJarClip_pension"><rect x="2" y="2" width="96" height="156" rx="10" /></clipPath></defs>
+            <rect class="goal-jar-bg" x="2" y="2" width="96" height="156" rx="10" />
+            <rect class="goal-jar-fill" id="goalFill_pension" x="2" y="158" width="96" height="0" clip-path="url(#goalJarClip_pension)" />
+            <rect class="goal-jar-outline" x="2" y="2" width="96" height="156" rx="10" />
+          </svg>
+        </div>
+        <div class="goal-jar-caption">
+          <div class="goal-jar-plan" id="goalPlan_pension">—</div>
+          <div class="goal-jar-fact-label">Факт (USD)</div>
+          <div class="goal-jar-fact-value" id="goalFactValue_pension">—</div>
+        </div>
+      </div>
+
+      <div class="goal-jar">
+        <div class="goal-jar-title">Обучение детей</div>
+        <div class="goal-jar-svg-wrap">
+          <svg class="goal-jar-svg" viewBox="0 0 100 160" preserveAspectRatio="none" aria-hidden="true">
+            <defs><clipPath id="goalJarClip_education"><rect x="2" y="2" width="96" height="156" rx="10" /></clipPath></defs>
+            <rect class="goal-jar-bg" x="2" y="2" width="96" height="156" rx="10" />
+            <rect class="goal-jar-fill" id="goalFill_education" x="2" y="158" width="96" height="0" clip-path="url(#goalJarClip_education)" />
+            <rect class="goal-jar-outline" x="2" y="2" width="96" height="156" rx="10" />
+          </svg>
+        </div>
+        <div class="goal-jar-caption">
+          <div class="goal-jar-plan" id="goalPlan_education">—</div>
+          <div class="goal-jar-fact-label">Факт (EUR)</div>
+          <div class="goal-jar-fact-value" id="goalFactValue_education">—</div>
+        </div>
+      </div>
+
+      <div class="goal-jar">
+        <div class="goal-jar-title">Квартира</div>
+        <div class="goal-jar-svg-wrap">
+          <svg class="goal-jar-svg" viewBox="0 0 100 160" preserveAspectRatio="none" aria-hidden="true">
+            <defs><clipPath id="goalJarClip_apartment"><rect x="2" y="2" width="96" height="156" rx="10" /></clipPath></defs>
+            <rect class="goal-jar-bg" x="2" y="2" width="96" height="156" rx="10" />
+            <rect class="goal-jar-fill" id="goalFill_apartment" x="2" y="158" width="96" height="0" clip-path="url(#goalJarClip_apartment)" />
+            <rect class="goal-jar-outline" x="2" y="2" width="96" height="156" rx="10" />
+          </svg>
+        </div>
+        <div class="goal-jar-caption">
+          <div class="goal-jar-plan" id="goalPlan_apartment">—</div>
+          <div class="goal-jar-fact-label">Факт (EUR)</div>
+          <input class="goal-jar-fact-input" type="number" id="goalFactInput_apartment" min="0" step="1000" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="goal-jar">
+        <div class="goal-jar-title">Подушка</div>
+        <div class="goal-jar-svg-wrap">
+          <svg class="goal-jar-svg" viewBox="0 0 100 160" preserveAspectRatio="none" aria-hidden="true">
+            <defs><clipPath id="goalJarClip_cushion"><rect x="2" y="2" width="96" height="156" rx="10" /></clipPath></defs>
+            <rect class="goal-jar-bg" x="2" y="2" width="96" height="156" rx="10" />
+            <rect class="goal-jar-fill" id="goalFill_cushion" x="2" y="158" width="96" height="0" clip-path="url(#goalJarClip_cushion)" />
+            <rect class="goal-jar-outline" x="2" y="2" width="96" height="156" rx="10" />
+          </svg>
+        </div>
+        <div class="goal-jar-caption">
+          <div class="goal-jar-plan" id="goalPlan_cushion">—</div>
+          <div class="goal-jar-fact-label">Факт (EUR)</div>
+          <input class="goal-jar-fact-input" type="number" id="goalFactInput_cushion" min="0" step="1000" placeholder="0" />
+        </div>
+      </div>
+
+    </div>
+
+    <div class="goal-overall-wrap">
+      <div class="goal-overall-track">
+        <div class="goal-overall-fill" id="goalOverallFill"></div>
+      </div>
+      <div class="goal-overall-summary">
+        <div class="goal-overall-pct" id="goalOverallPct">—</div>
+        <div class="goal-overall-caption" id="goalOverallCaption">—</div>
+      </div>
+    </div>
+  </section>
+
+</div>
 
 <div id="tabPortfolio" class="tab-panel app-grid is-active" data-tab="portfolio">
 
@@ -1067,6 +1163,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>
