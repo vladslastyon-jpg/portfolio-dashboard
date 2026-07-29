@@ -2133,11 +2133,18 @@ const GOALS_MANUAL_STORAGE_KEY = "goals_manual_facts_v1";
 // Ручной ввод (localStorage) для них — ДОБАВКА поверх системного факта, а не замена;
 // у Квартиры/Подушки системного факта нет, там ручной ввод — единственный факт (как раньше).
 const GOAL_DEFS = [
-  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", getAutoFact: () => mainProfile.getGoalSummary().total },
-  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", getAutoFact: () => alenaProfile.getGoalSummary().total },
-  { id: "apartment", title: "Квартира", plan: 200000, symbol: "€" },
-  { id: "cushion", title: "Подушка", plan: 20000, symbol: "€" },
+  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", currency: "USD", getAutoFact: () => mainProfile.getGoalSummary().total },
+  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", currency: "EUR", getAutoFact: () => alenaProfile.getGoalSummary().total },
+  { id: "apartment", title: "Квартира", plan: 200000, symbol: "€", currency: "EUR" },
+  { id: "cushion", title: "Подушка", plan: 20000, symbol: "€", currency: "EUR" },
 ];
+
+// Общий план всегда переводится в евро (используем ту же ставку eurUsdRate,
+// что и остальной сайт) — так все 4 цели складываются в одной валюте, честно.
+function toGoalEUR(value, currency) {
+  if (currency === "EUR") return value;
+  return convertCurrency(value, "EUR"); // convertCurrency ждёт значение в USD
+}
 
 function loadManualGoalFacts() {
   try {
@@ -2219,9 +2226,9 @@ function renderOverallTab() {
       }
     }
 
-    sumAuto += auto;
-    sumManual += manual;
-    sumPlan += g.plan;
+    sumAuto += toGoalEUR(auto, g.currency);
+    sumManual += toGoalEUR(manual, g.currency);
+    sumPlan += toGoalEUR(g.plan, g.currency);
   });
 
   const overallAutoPct = sumPlan > 0 ? (sumAuto / sumPlan) * 100 : 0;
@@ -2239,7 +2246,7 @@ function renderOverallTab() {
   if (manualPctEl) manualPctEl.textContent = fmtGoalPctSigned(overallManualPct);
   if (totalPctEl) totalPctEl.textContent = fmtGoalPct(overallTotalPct);
   if (capEl) {
-    capEl.textContent = `${Math.round(sumAuto + sumManual).toLocaleString("en-US")} из ${Math.round(sumPlan).toLocaleString("en-US")} (условно, без пересчёта валют)`;
+    capEl.textContent = `${fmtGoalMoney(sumAuto + sumManual, "€")} из ${fmtGoalMoney(sumPlan, "€")} (пересчитано в евро)`;
   }
   if (fillAutoBar && fillManualBar) {
     const autoBarPct = sumPlan > 0 ? Math.max(0, Math.min(100, overallAutoPct)) : 0;
