@@ -334,6 +334,7 @@ async function fetchAll() {
 
     computeAll();
     renderAll();
+    if (typeof renderOverallTab === "function") renderOverallTab();
 
     document.getElementById("app").hidden = false;
     const now = new Date();
@@ -2064,6 +2065,16 @@ return {
   hasData: () => !!derived.kpi,
   getCurrency: () => profileCurrency,
   setCurrency,
+  // Факт из системы для вкладки "Общий": если есть план (Portfolio500k) — берём его
+  // "текущий итог" (уже включает кэш), иначе рыночная стоимость + кэш.
+  // До первой загрузки данных (derived.kpi ещё нет) — total: null.
+  getGoalSummary: () => {
+    if (!derived.kpi) return { total: null };
+    if (hasPlan && derived.planActual && derived.planActual.currentTotal !== null && derived.planActual.currentTotal !== undefined) {
+      return { total: derived.planActual.currentTotal };
+    }
+    return { total: (derived.kpi.marketValue || 0) + (getCashValue() || 0) };
+  },
 };
 }
 
@@ -2118,10 +2129,12 @@ let activeTab = "portfolio";
 
 const GOALS_MANUAL_STORAGE_KEY = "goals_manual_facts_v1";
 
-// Факт по всем 4 целям вводится вручную и хранится в localStorage.
+// getAutoFact — факт из системы (Google Sheets), задан только у Пенсии и Обучения.
+// Ручной ввод (localStorage) для них — ДОБАВКА поверх системного факта, а не замена;
+// у Квартиры/Подушки системного факта нет, там ручной ввод — единственный факт (как раньше).
 const GOAL_DEFS = [
-  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$" },
-  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€" },
+  { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", getAutoFact: () => mainProfile.getGoalSummary().total },
+  { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", getAutoFact: () => alenaProfile.getGoalSummary().total },
   { id: "apartment", title: "Квартира", plan: 200000, symbol: "€" },
   { id: "cushion", title: "Подушка", plan: 40000, symbol: "€" },
 ];
@@ -2141,6 +2154,8 @@ function fmtGoalMoney(value, symbol) {
   if (value === null || value === undefined || isNaN(value)) return "—";
   return `${symbol}${Math.round(value).toLocaleString("en-US")}`;
 }
+function fmtGoalPct(pct) { return `${pct.toFixed(1)}%`; }
+function fmtGoalPctSigned(pct) { return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`; }
 
 // Высота видимой (закруглённой) области банки во viewBox SVG — должна совпадать
 // с rect'ами в index.html (x=2 y=2 width=96 height=156).
@@ -2148,40 +2163,90 @@ const GOAL_JAR_VIEWBOX_H = 156;
 const GOAL_JAR_VIEWBOX_Y0 = 2;
 
 function renderOverallTab() {
-  let sumFact = 0;
+  let sumAuto = 0;
+  let sumManual = 0;
   let sumPlan = 0;
 
   GOAL_DEFS.forEach((g) => {
-    const saved = manualGoalFacts[g.id];
-    const fact = (saved === undefined || saved === null || isNaN(saved)) ? 0 : saved;
+    const rawAuto = g.getAutoFact ? g.getAutoFact() : null;
+    const auto = (rawAuto === null || rawAuto === undefined || isNaN(rawAuto)) ? 0 : rawAuto;
+    const savedManual = manualGoalFacts[g.id];
+    const manual = (savedManual === undefined || savedManual === null || isNaN(savedManual)) ? 0 : savedManual;
 
     const planEl = document.getElementById("goalPlan_" + g.id);
     if (planEl) planEl.textContent = fmtGoalMoney(g.plan, g.symbol);
 
-    // значение факта показывает сам <input> (wireOverallInputs), здесь его не перезаписываем
+    const autoPct = g.plan > 0 ? (auto / g.plan) * 100 : 0;
+    const manualPct = g.plan > 0 ? (manual / g.plan) * 100 : 0;
+    const totalPct = autoPct + manualPct;
 
-    const fillEl = document.getElementById("goalFill_" + g.id);
-    if (fillEl) {
-      const pct = g.plan > 0 ? Math.max(0, Math.min(100, (fact / g.plan) * 100)) : 0;
-      const fillH = (pct / 100) * GOAL_JAR_VIEWBOX_H;
-      fillEl.setAttribute("y", String(GOAL_JAR_VIEWBOX_Y0 + (GOAL_JAR_VIEWBOX_H - fillH)));
-      fillEl.setAttribute("height", String(fillH));
+    if (g.getAutoFact) {
+      // Пенсия / Обучение: два слоя в банке (система снизу, ручное сверху) + 3 показателя в %.
+      const autoDisplayEl = document.getElementById("goalAutoDisplay_" + g.id);
+      if (autoDisplayEl) {
+        autoDisplayEl.textContent = rawAuto === null
+          ? "—"
+          : `${fmtGoalMoney(auto, g.symbol)} · ${fmtGoalPct(autoPct)}`;
+      }
+      const manualPctEl = document.getElementById("goalManualPct_" + g.id);
+      if (manualPctEl) manualPctEl.textContent = fmtGoalPctSigned(manualPct);
+      const totalPctEl = document.getElementById("goalTotalPct_" + g.id);
+      if (totalPctEl) totalPctEl.textContent = fmtGoalPct(totalPct);
+
+      const autoFillPct = g.plan > 0 ? Math.max(0, Math.min(100, autoPct)) : 0;
+      const manualFillPct = g.plan > 0 ? Math.max(0, Math.min(100 - autoFillPct, manualPct)) : 0;
+      const autoFillH = (autoFillPct / 100) * GOAL_JAR_VIEWBOX_H;
+      const manualFillH = (manualFillPct / 100) * GOAL_JAR_VIEWBOX_H;
+
+      const autoFillEl = document.getElementById("goalFillAuto_" + g.id);
+      if (autoFillEl) {
+        autoFillEl.setAttribute("y", String(GOAL_JAR_VIEWBOX_Y0 + (GOAL_JAR_VIEWBOX_H - autoFillH)));
+        autoFillEl.setAttribute("height", String(autoFillH));
+      }
+      const manualFillEl = document.getElementById("goalFillManual_" + g.id);
+      if (manualFillEl) {
+        manualFillEl.setAttribute("y", String(GOAL_JAR_VIEWBOX_Y0 + (GOAL_JAR_VIEWBOX_H - autoFillH - manualFillH)));
+        manualFillEl.setAttribute("height", String(manualFillH));
+      }
+    } else {
+      // Квартира / Подушка: как раньше — один слой, ручной ввод это весь факт.
+      const fillEl = document.getElementById("goalFill_" + g.id);
+      if (fillEl) {
+        const pct = Math.max(0, Math.min(100, manualPct));
+        const fillH = (pct / 100) * GOAL_JAR_VIEWBOX_H;
+        fillEl.setAttribute("y", String(GOAL_JAR_VIEWBOX_Y0 + (GOAL_JAR_VIEWBOX_H - fillH)));
+        fillEl.setAttribute("height", String(fillH));
+      }
     }
 
-    sumFact += fact;
+    sumAuto += auto;
+    sumManual += manual;
     sumPlan += g.plan;
   });
 
-  const pctEl = document.getElementById("goalOverallPct");
-  const capEl = document.getElementById("goalOverallCaption");
-  const fillBar = document.getElementById("goalOverallFill");
-  const overallPct = sumPlan > 0 ? (sumFact / sumPlan) * 100 : 0;
+  const overallAutoPct = sumPlan > 0 ? (sumAuto / sumPlan) * 100 : 0;
+  const overallManualPct = sumPlan > 0 ? (sumManual / sumPlan) * 100 : 0;
+  const overallTotalPct = overallAutoPct + overallManualPct;
 
-  if (pctEl) pctEl.textContent = `${overallPct.toFixed(1)}%`;
+  const autoPctEl = document.getElementById("goalOverallAutoPct");
+  const manualPctEl = document.getElementById("goalOverallManualPct");
+  const totalPctEl = document.getElementById("goalOverallTotalPct");
+  const capEl = document.getElementById("goalOverallCaption");
+  const fillAutoBar = document.getElementById("goalOverallFillAuto");
+  const fillManualBar = document.getElementById("goalOverallFillManual");
+
+  if (autoPctEl) autoPctEl.textContent = fmtGoalPct(overallAutoPct);
+  if (manualPctEl) manualPctEl.textContent = fmtGoalPctSigned(overallManualPct);
+  if (totalPctEl) totalPctEl.textContent = fmtGoalPct(overallTotalPct);
   if (capEl) {
-    capEl.textContent = `${Math.round(sumFact).toLocaleString("en-US")} из ${Math.round(sumPlan).toLocaleString("en-US")} (условно, без пересчёта валют)`;
+    capEl.textContent = `${Math.round(sumAuto + sumManual).toLocaleString("en-US")} из ${Math.round(sumPlan).toLocaleString("en-US")} (условно, без пересчёта валют)`;
   }
-  if (fillBar) fillBar.style.width = Math.min(100, Math.max(0, overallPct)) + "%";
+  if (fillAutoBar && fillManualBar) {
+    const autoBarPct = sumPlan > 0 ? Math.max(0, Math.min(100, overallAutoPct)) : 0;
+    const manualBarPct = sumPlan > 0 ? Math.max(0, Math.min(100 - autoBarPct, overallManualPct)) : 0;
+    fillAutoBar.style.width = autoBarPct + "%";
+    fillManualBar.style.width = manualBarPct + "%";
+  }
 }
 
 function wireOverallInputs() {
