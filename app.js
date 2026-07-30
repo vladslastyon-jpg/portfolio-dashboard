@@ -1039,6 +1039,8 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
   let weightedNumerator = 0;
   let totalStartValue = 0;
 
+  const totalDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
+
   coreTickers.forEach((ticker) => {
     const sharesStart = sharesAsOfDate(ticker, dayBeforeStart);
     const sharesEnd = sharesAsOfDate(ticker, end);
@@ -1046,14 +1048,35 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
 
     const priceStart = priceOnOrBefore(ticker, start);
     const priceEnd = priceOnOrBefore(ticker, end);
-    const returnPct = priceStart > 0 ? priceEnd / priceStart - 1 : null;
     const qtyDelta = sharesEnd - sharesStart;
 
-    const startValue = sharesStart * priceStart;
-    totalStartValue += startValue;
-    if (returnPct !== null) weightedNumerator += startValue * returnPct;
+    const beginValue = sharesStart * priceStart;
+    const endValue = sharesEnd * priceEnd;
 
-    const returnAbs = sharesStart * (priceEnd - priceStart);
+    // Modified Dietz: сделки внутри месяца взвешиваются по доле периода, в
+    // течение которой деньги уже "работали" — иначе наивное price-ratio
+    // (priceEnd/priceStart-1) искажает % доходности для активно докупаемых
+    // тикеров (то же самое, что уже используется для строки "Портфель
+    // целиком" через Portfolio_Monthly, теперь согласовано и по тикерам).
+    let cfTotal = 0, weightedCf = 0;
+    derived.txRows.forEach((t) => {
+      if (t.ticker !== ticker) return;
+      const d = parseSheetDate(t.date);
+      if (!d || d <= dayBeforeStart || d > end) return;
+      const cf = t.qty * t.price;
+      const daysFromStart = (d.getTime() - start.getTime()) / 86400000;
+      const weight = (totalDays - daysFromStart) / totalDays;
+      cfTotal += cf;
+      weightedCf += cf * weight;
+    });
+
+    const denom = beginValue + weightedCf;
+    const returnPct = denom > 0 ? (endValue - beginValue - cfTotal) / denom : null;
+    const returnAbs = endValue - beginValue - cfTotal;
+
+    totalStartValue += beginValue;
+    if (returnPct !== null) weightedNumerator += beginValue * returnPct;
+
     rows.push({ ticker, returnPct, returnAbs, qtyDelta });
   });
 
