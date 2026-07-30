@@ -3285,12 +3285,13 @@ async function rpRefreshRecommendation() {
   const box = document.getElementById("rpRecommendBox");
   const meta = document.getElementById("rpRecommendMeta");
   const btn = document.getElementById("rpRefreshBtn");
-  const url = (document.getElementById("rpWorkerUrl").value || "").trim();
+  const base = (document.getElementById("rpWorkerUrl").value || "").trim().replace(/\/+$/, "");
 
-  if (!url) {
+  if (!base) {
     box.innerHTML = '<p class="rp-recommend-error">Сначала укажите URL Cloudflare Worker выше (после деплоя).</p>';
     return;
   }
+  const url = `${base}/api/rebalance-recommendation`;
 
   btn.disabled = true;
   btn.textContent = "Запрашиваю...";
