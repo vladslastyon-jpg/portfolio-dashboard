@@ -1041,13 +1041,26 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
 
   const totalDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
 
+  // Asset_History обновляется батчем только по ЗАКРЫТИИ дня — сегодняшняя
+  // (ещё не закрытая) строка там может быть вчерашней/устаревшей. "Текущая
+  // цена" в Актуальном Портфеле, наоборот, живая (то же самое, что уже
+  // использует формула "30 days" в детальной таблице). Поэтому для сегодняшнего
+  // дня берём цену оттуда, а не из Asset_History — иначе цифры расходятся
+  // именно в дни сильных внутридневных движений.
+  const today = new Date();
+  const isEndToday = end.getFullYear() === today.getFullYear() && end.getMonth() === today.getMonth() && end.getDate() === today.getDate();
+  const livePriceByTicker = {};
+  if (isEndToday) {
+    (derived.actualPortfolio?.rows || []).forEach((r) => { if (r.price) livePriceByTicker[r.ticker] = r.price; });
+  }
+
   coreTickers.forEach((ticker) => {
     const sharesStart = sharesAsOfDate(ticker, dayBeforeStart);
     const sharesEnd = sharesAsOfDate(ticker, end);
     if (Math.abs(sharesStart) < 1e-9 && Math.abs(sharesEnd) < 1e-9) return;
 
     const priceStart = priceOnOrBefore(ticker, start);
-    const priceEnd = priceOnOrBefore(ticker, end);
+    const priceEnd = livePriceByTicker[ticker] || priceOnOrBefore(ticker, end);
     const qtyDelta = sharesEnd - sharesStart;
 
     const beginValue = sharesStart * priceStart;
