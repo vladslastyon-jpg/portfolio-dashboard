@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=30" />
+<link rel="stylesheet" href="style.css?v=31" />
 </head>
 <body>
 
@@ -1216,16 +1216,42 @@
     </label>
   </section>
 
+  <section class="panel rp-assets-panel" aria-label="Активы — что делать">
+    <div class="panel-header">
+      <h2>Активы — что делать сейчас</h2>
+      <span class="panel-note">по каждому активу в плане — команда на основе текущей цены и дедлайнов</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table rp-assets-table">
+        <thead>
+          <tr>
+            <th>Актив</th>
+            <th class="num">Текущая цена</th>
+            <th>Команда</th>
+            <th>Пояснение</th>
+          </tr>
+        </thead>
+        <tbody id="rpAssetsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel rp-table-panel" aria-label="Таблица плана траншей">
     <div class="panel-header">
-      <h2>Транши</h2>
-      <span class="panel-note">статусы pending/done/skipped и суммы исполнения меняются здесь вручную</span>
+      <h2>Транши покупок и продаж</h2>
+      <span class="panel-note">детали по каждому траншу отдельно · статус и факт исполнения меняются здесь вручную</span>
     </div>
+    <p class="rp-legend">
+      <strong>Тип</strong> — покупка (на просадке) или продажа (напр. к сроку). ·
+      <strong>Триггер %</strong> — просадка/рост от пика, при которой транш активируется. ·
+      <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено).
+    </p>
     <div class="table-scroll">
       <table class="ledger-table rp-table">
         <thead>
           <tr>
             <th>Актив</th>
+            <th>Тип</th>
             <th class="num">Транш №</th>
             <th class="num">Триггер %</th>
             <th class="num">Триггер-цена</th>
@@ -1271,6 +1297,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=33"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>

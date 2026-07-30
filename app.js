@@ -3164,9 +3164,10 @@ const RP_STORAGE_KEY = "rebalancePlan_v1";
 // стартовый пример; остальные транши пользователь добавляет сам кнопкой
 // "+ добавить транш" (портфель "500к" в Google Sheets не хранит триггеры/
 // дедлайны транша, только план/факт по активам — взять их оттуда напрямую нельзя).
+// side: "buy" (докупка на просадке) | "sell" (продажа — напр. к дедлайну).
 let rpTranches = [
   {
-    id: "rp-seed-smh-2", asset: "SMH", tranche: 2, triggerPct: -25, triggerPrice: 88.4,
+    id: "rp-seed-smh-2", asset: "SMH", side: "buy", tranche: 2, triggerPct: -25, triggerPrice: 88.4,
     peakRef: 117.92, amountPlan: 12819, deadline: "2026-09-03", status: "pending",
     execDate: "", execPrice: "", execAmount: "", cycle: "2026-Q3-1",
   },
@@ -3204,17 +3205,71 @@ function rpGetAssetPrices() {
 }
 
 // Логика триггера — та же, что зашита в системный промпт Worker'а (раздел 4
-// ТЗ): срабатывает по цене (просадка от пика достигнута) ИЛИ по дедлайну
-// (гибрид — не ждать просадки бесконечно). Только для статуса "pending".
+// ТЗ): срабатывает по цене ИЛИ по дедлайну (гибрид — не ждать бесконечно).
+// Для покупки (side="buy") триггер — цена УПАЛА до trigger_price или ниже
+// (просадка от пика). Для продажи (side="sell") — цена ВЫРОСЛА до trigger_price
+// или выше (если задана); в любом случае дедлайн срабатывает независимо от
+// цены — это покрывает случай "избавиться от актива к такому-то сроку".
+// Только для статуса "pending".
 function rpComputeLiveStatus(t, prices, todayISO) {
   const price = prices[t.asset];
-  const hasPrice = price !== null && price !== undefined && t.triggerPrice !== null && t.triggerPrice !== undefined && t.triggerPrice !== "";
-  const triggeredByPrice = hasPrice && price <= t.triggerPrice;
+  const hasTriggerPrice = t.triggerPrice !== null && t.triggerPrice !== undefined && t.triggerPrice !== "";
+  const hasPrice = price !== null && price !== undefined && hasTriggerPrice;
+  const triggeredByPrice = hasPrice && (t.side === "sell" ? price >= t.triggerPrice : price <= t.triggerPrice);
   const triggeredByDeadline = !!t.deadline && todayISO >= t.deadline;
-  if (triggeredByPrice && triggeredByDeadline) return { label: "СРАБОТАЛ (цена+дедлайн)", cls: "rp-badge--hit" };
-  if (triggeredByPrice) return { label: "СРАБОТАЛ (цена)", cls: "rp-badge--hit" };
-  if (triggeredByDeadline) return { label: "СРАБОТАЛ (дедлайн)", cls: "rp-badge--hit" };
-  return { label: "ждать", cls: "rp-badge--wait" };
+  const verb = t.side === "sell" ? "ПРОДАТЬ" : "КУПИТЬ";
+  if (triggeredByPrice && triggeredByDeadline) return { label: `${verb} (цена+дедлайн)`, cls: "rp-badge--hit", triggered: true };
+  if (triggeredByPrice) return { label: `${verb} (цена)`, cls: "rp-badge--hit", triggered: true };
+  if (triggeredByDeadline) return { label: `${verb} (дедлайн)`, cls: "rp-badge--hit", triggered: true };
+  return { label: "ждать", cls: "rp-badge--wait", triggered: false };
+}
+
+// Сводка "актив → что делать сейчас": один ряд на каждый актив, встречающийся
+// в плане (динамически, без жёстко зашитого списка тикеров).
+function rpRenderAssetsSummary() {
+  const body = document.getElementById("rpAssetsBody");
+  if (!body) return;
+  body.innerHTML = "";
+  const prices = rpGetAssetPrices();
+  const today = rpTodayISO();
+
+  const assets = [];
+  rpTranches.forEach((t) => { if (t.asset && !assets.includes(t.asset)) assets.push(t.asset); });
+
+  if (!assets.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty-row">В плане пока нет ни одного транша — добавь их в таблице ниже.</td></tr>';
+    return;
+  }
+
+  assets.forEach((asset) => {
+    const pending = rpTranches.filter((t) => t.asset === asset && t.status === "pending");
+    const price = prices[asset];
+    const triggered = pending
+      .map((t) => ({ t, live: rpComputeLiveStatus(t, prices, today) }))
+      .filter((x) => x.live.triggered);
+
+    let command, cls, explain;
+    if (!pending.length) {
+      command = "—"; cls = "rp-cmd--hold";
+      explain = "нет ожидающих траншей по этому активу";
+    } else if (triggered.length) {
+      const verbs = [...new Set(triggered.map((x) => (x.t.side === "sell" ? "ПРОДАВАТЬ" : "ПОКУПАТЬ")))];
+      command = verbs.join(" / "); cls = "rp-cmd--act";
+      explain = triggered.map((x) => `транш №${x.t.tranche ?? "?"}: ${x.live.label.toLowerCase()}`).join("; ");
+    } else {
+      command = "ДЕРЖАТЬ"; cls = "rp-cmd--hold";
+      const nearest = pending[0];
+      explain = `ближайший транш №${nearest.tranche ?? "?"}: триггер ${nearest.triggerPrice || "—"}${nearest.deadline ? `, дедлайн ${nearest.deadline}` : ""}`;
+    }
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${bgEsc(asset)}</td>
+      <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
+      <td><span class="rp-cmd ${cls}">${command}</span></td>
+      <td class="rp-explain">${bgEsc(explain)}</td>`;
+    body.appendChild(tr);
+  });
 }
 
 function rpRenderTable() {
@@ -3229,6 +3284,12 @@ function rpRenderTable() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><input type="text" value="${bgEsc(t.asset || "")}" /></td>
+      <td>
+        <select class="rp-side-select">
+          <option value="buy"${t.side !== "sell" ? " selected" : ""}>покупка</option>
+          <option value="sell"${t.side === "sell" ? " selected" : ""}>продажа</option>
+        </select>
+      </td>
       <td class="num"><input type="number" step="1" value="${t.tranche ?? ""}" /></td>
       <td class="num"><input type="number" step="0.1" value="${t.triggerPct ?? ""}" /></td>
       <td class="num"><input type="number" step="0.01" value="${t.triggerPrice ?? ""}" /></td>
@@ -3236,7 +3297,7 @@ function rpRenderTable() {
       <td class="num"><input type="number" step="1" value="${t.amountPlan ?? ""}" /></td>
       <td><input type="date" value="${t.deadline || ""}" /></td>
       <td class="rp-status-cell">
-        <select>
+        <select class="rp-status-select">
           <option value="pending"${t.status === "pending" ? " selected" : ""}>pending</option>
           <option value="done"${t.status === "done" ? " selected" : ""}>done</option>
           <option value="skipped"${t.status === "skipped" ? " selected" : ""}>skipped</option>
@@ -3251,33 +3312,40 @@ function rpRenderTable() {
 
     const [assetEl, trancheEl, pctEl, priceEl, peakEl, amountEl, deadlineEl, execDateEl, execPriceEl, execAmountEl, cycleEl] =
       tr.querySelectorAll("input");
-    const statusEl = tr.querySelector("select");
+    const sideEl = tr.querySelector(".rp-side-select");
+    const statusEl = tr.querySelector(".rp-status-select");
 
-    assetEl.addEventListener("change", () => { t.asset = assetEl.value.trim().toUpperCase(); rpRenderTable(); rpSaveState(); });
-    trancheEl.addEventListener("change", () => { t.tranche = parseNum(trancheEl.value); rpSaveState(); });
+    assetEl.addEventListener("change", () => { t.asset = assetEl.value.trim().toUpperCase(); rpRenderAll(); rpSaveState(); });
+    sideEl.addEventListener("change", () => { t.side = sideEl.value; rpRenderAll(); rpSaveState(); });
+    trancheEl.addEventListener("change", () => { t.tranche = parseNum(trancheEl.value); rpRenderAssetsSummary(); rpSaveState(); });
     pctEl.addEventListener("change", () => { t.triggerPct = parseNum(pctEl.value); rpSaveState(); });
-    priceEl.addEventListener("change", () => { t.triggerPrice = parseNum(priceEl.value); rpRenderTable(); rpSaveState(); });
+    priceEl.addEventListener("change", () => { t.triggerPrice = parseNum(priceEl.value); rpRenderAll(); rpSaveState(); });
     peakEl.addEventListener("change", () => { t.peakRef = parseNum(peakEl.value); rpSaveState(); });
     amountEl.addEventListener("change", () => { t.amountPlan = parseNum(amountEl.value); rpSaveState(); });
-    deadlineEl.addEventListener("change", () => { t.deadline = deadlineEl.value; rpRenderTable(); rpSaveState(); });
+    deadlineEl.addEventListener("change", () => { t.deadline = deadlineEl.value; rpRenderAll(); rpSaveState(); });
     execDateEl.addEventListener("change", () => { t.execDate = execDateEl.value; rpSaveState(); });
     execPriceEl.addEventListener("change", () => { t.execPrice = parseNum(execPriceEl.value); rpSaveState(); });
     execAmountEl.addEventListener("change", () => { t.execAmount = parseNum(execAmountEl.value); rpSaveState(); });
     cycleEl.addEventListener("input", () => { t.cycle = cycleEl.value; rpSaveState(); });
-    statusEl.addEventListener("change", () => { t.status = statusEl.value; rpRenderTable(); rpSaveState(); });
-    tr.querySelector(".budget-rm-btn").addEventListener("click", () => { rpTranches.splice(i, 1); rpRenderTable(); rpSaveState(); });
+    statusEl.addEventListener("change", () => { t.status = statusEl.value; rpRenderAll(); rpSaveState(); });
+    tr.querySelector(".budget-rm-btn").addEventListener("click", () => { rpTranches.splice(i, 1); rpRenderAll(); rpSaveState(); });
 
     body.appendChild(tr);
   });
 }
 
+function rpRenderAll() {
+  rpRenderAssetsSummary();
+  rpRenderTable();
+}
+
 function rpAddTranche() {
   rpTranches.push({
-    id: rpUid(), asset: "", tranche: rpTranches.length + 1, triggerPct: -20, triggerPrice: "",
+    id: rpUid(), asset: "", side: "buy", tranche: rpTranches.length + 1, triggerPct: -20, triggerPrice: "",
     peakRef: "", amountPlan: "", deadline: "", status: "pending",
     execDate: "", execPrice: "", execAmount: "", cycle: "",
   });
-  rpRenderTable();
+  rpRenderAll();
   rpSaveState();
 }
 
@@ -3302,7 +3370,7 @@ async function rpRefreshRecommendation() {
     const planRows = rpTranches
       .filter((t) => t.status === "pending")
       .map((t) => ({
-        asset: t.asset, tranche: t.tranche, trigger_pct: t.triggerPct, trigger_price: t.triggerPrice,
+        asset: t.asset, side: t.side || "buy", tranche: t.tranche, trigger_pct: t.triggerPct, trigger_price: t.triggerPrice,
         peak_ref: t.peakRef, amount_plan: t.amountPlan, deadline: t.deadline, status: t.status,
       }));
 
@@ -3332,7 +3400,7 @@ function wireRebalanceInputs() {
   urlInput.addEventListener("change", () => { rpWorkerUrl = urlInput.value.trim(); rpSaveState(); });
   document.getElementById("rpAddTrancheBtn").addEventListener("click", rpAddTranche);
   document.getElementById("rpRefreshBtn").addEventListener("click", rpRefreshRecommendation);
-  rpRenderTable();
+  rpRenderAll();
 }
 
 /* -------------------------- Wire up UI (общее + по вкладкам) -------------------------- */
@@ -3364,7 +3432,7 @@ document.addEventListener("DOMContentLoaded", () => {
       syncCurrencyButtons();
       if (tab === "pension" && mainProfile.hasData()) mainProfile.renderPension();
       if (tab === "pensionAlena" && alenaProfile.hasData()) alenaProfile.renderPension();
-      if (tab === "rebalance") rpRenderTable();
+      if (tab === "rebalance") rpRenderAll();
     });
   });
 

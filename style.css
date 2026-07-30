@@ -1095,20 +1095,43 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------------- План докупок / ребалансировки ---------------- */
 .rp-config-panel { grid-column: span 12; }
+.rp-assets-panel { grid-column: span 12; }
 .rp-table-panel { grid-column: span 12; }
 .rp-recommend-panel { grid-column: span 12; }
 .rp-worker-url-input { max-width: 460px; }
+
+.rp-legend {
+  margin: 0 0 12px; font-size: 11.5px; color: var(--text-faint); font-family: var(--font-body); line-height: 1.6;
+}
+.rp-legend strong { color: var(--text-muted); font-weight: 600; }
+
+/* Таблицы плана шире панели — горизонтальный скролл вместо переноса подписей */
+.rp-assets-table, .rp-table { min-width: 760px; }
+.rp-table { min-width: 1080px; }
+.rp-table-panel .table-scroll, .rp-assets-panel .table-scroll { overflow-x: auto; }
+.rp-assets-table th, .rp-table th { white-space: nowrap; font-size: 10.5px; }
+.rp-assets-table td, .rp-table td { white-space: nowrap; }
+
+.rp-cmd {
+  display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 12px; font-weight: 600;
+  font-family: var(--font-mono);
+}
+.rp-cmd--act { color: var(--negative); border: 1px solid var(--negative); }
+.rp-cmd--hold { color: var(--text-muted); border: 1px solid var(--hairline); }
+.rp-explain { white-space: normal !important; color: var(--text-muted); font-size: 12px; }
+
 .rp-table input[type="text"], .rp-table input[type="number"], .rp-table input[type="date"] {
-  width: 100%; border: none; background: transparent; color: var(--text-primary);
+  width: 100%; min-width: 62px; border: none; background: transparent; color: var(--text-primary);
   font-family: var(--font-mono); font-size: 13px; padding: 4px 2px;
 }
+.rp-table input[type="date"] { min-width: 100px; }
 .rp-table input[type="number"] { text-align: right; }
 .rp-table input:focus { outline: none; background: var(--surface-raised); border-radius: 3px; }
 .rp-table select {
   background: var(--surface-raised); border: 1px solid var(--hairline); color: var(--text-primary);
   font-family: var(--font-mono); font-size: 12.5px; padding: 4px 6px; border-radius: var(--radius);
 }
-.rp-status-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.rp-status-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; white-space: normal; }
 .rp-badge {
   font-size: 10px; border-radius: 3px; padding: 2px 5px; white-space: nowrap; display: inline-block;
 }
