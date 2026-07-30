@@ -1,0 +1,7 @@
+name = "rebalance-worker"
+main = "index.js"
+compatibility_date = "2026-07-30"
+
+# ANTHROPIC_API_KEY хранится как Worker Secret командой
+#   wrangler secret put ANTHROPIC_API_KEY
+# — НЕ здесь и НЕ в git. См. DEPLOY.md.

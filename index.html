@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=29" />
+<link rel="stylesheet" href="style.css?v=30" />
 </head>
 <body>
 
@@ -55,6 +55,7 @@
     <button class="tab-btn" data-tab="realEstate">Недвижимость</button>
     <button class="tab-btn" data-tab="budget">Бюджет</button>
     <button class="tab-btn" data-tab="cashflow">Кэш-флоу 15 лет</button>
+    <button class="tab-btn" data-tab="rebalance">План докупок</button>
   </div>
   <div class="tab-nav-group">
     <button class="tab-btn" data-tab="portfolioAlena">Портфель Алена</button>
@@ -1202,6 +1203,63 @@
 
 </div>
 
+<div id="tabRebalance" class="tab-panel app-grid" data-tab="rebalance" hidden>
+
+  <section class="panel rp-config-panel" aria-label="Настройка">
+    <div class="panel-header">
+      <h2>План докупок / ребалансировки</h2>
+      <span class="panel-note">триггерная сетка по просадке + дедлайну · план хранится локально в этом браузере</span>
+    </div>
+    <label class="pension-input rp-worker-url-input">
+      <span class="figure-label">URL Cloudflare Worker (после деплоя)</span>
+      <input type="text" id="rpWorkerUrl" placeholder="https://rebalance-worker.ВАШ-СУБДОМЕН.workers.dev" />
+    </label>
+  </section>
+
+  <section class="panel rp-table-panel" aria-label="Таблица плана траншей">
+    <div class="panel-header">
+      <h2>Транши</h2>
+      <span class="panel-note">статусы pending/done/skipped и суммы исполнения меняются здесь вручную</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table rp-table">
+        <thead>
+          <tr>
+            <th>Актив</th>
+            <th class="num">Транш №</th>
+            <th class="num">Триггер %</th>
+            <th class="num">Триггер-цена</th>
+            <th class="num">Пик</th>
+            <th class="num">Сумма плана, $</th>
+            <th>Дедлайн</th>
+            <th>Статус</th>
+            <th>Дата исп.</th>
+            <th class="num">Цена исп.</th>
+            <th class="num">Сумма исп., $</th>
+            <th>Цикл</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rpTableBody"></tbody>
+      </table>
+    </div>
+    <button class="add-row-btn" id="rpAddTrancheBtn">+ добавить транш</button>
+  </section>
+
+  <section class="panel rp-recommend-panel" aria-label="Рекомендация от Claude">
+    <div class="panel-header">
+      <h2>Рекомендация</h2>
+      <span class="panel-note">советующая — ничего не пишет обратно в план, только показывает текст</span>
+    </div>
+    <button class="btn-primary" id="rpRefreshBtn">Обновить рекомендацию</button>
+    <div class="rp-recommend-box" id="rpRecommendBox">
+      <p class="rp-recommend-placeholder">Нажмите «Обновить рекомендацию», чтобы получить свежий совет по текущим ценам и дедлайнам.</p>
+    </div>
+    <div class="rp-recommend-meta" id="rpRecommendMeta"></div>
+  </section>
+
+</div>
+
 </main>
 
 <div id="signedOutHint" class="signed-out-hint">
@@ -1213,6 +1271,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=31"></script>
+<script src="app.js?v=32"></script>
 </body>
 </html>

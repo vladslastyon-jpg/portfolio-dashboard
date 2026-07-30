@@ -1,0 +1,113 @@
+// Cloudflare Worker — советующий прокси к Anthropic API для вкладки
+// "План докупок" на сайте. Держит ANTHROPIC_API_KEY как Worker Secret —
+// ключ никогда не попадает в браузер и не хранится в этом репозитории.
+//
+// Деплой: см. DEPLOY.md рядом с этим файлом.
+
+const SYSTEM_PROMPT = `Ты — ассистент по инвестиционному плану пользователя. У пользователя долгосрочный (15-30 лет)
+портфель с core-частью (CSPX/VOO, S&P 500) и satellite-частью (SOXX/SMH, полупроводники).
+Тебе передают текущие цены активов и таблицу плановых траншей докупки со статусом каждого.
+
+Правила интерпретации:
+1. Транш "срабатывает", если текущая цена актива <= его триггер-цены (просадка от пика достигнута).
+2. Транш также подлежит исполнению, если сегодняшняя дата >= дедлайна, даже если триггер по цене
+   не сработал (правило "гибрид с дедлайном": не ждать просадки бесконечно).
+3. Если и триггер, и дедлайн ещё не наступили — статус "ждать", без ложной срочности.
+4. Никогда не рекомендуй суммы, которых нет в плане, и не меняй распределение между активами
+   самостоятельно — только сообщай, что по плану пора делать.
+5. Если несколько траншей у разных активов "созрели" одновременно — перечисли все, не выбирай
+   один за пользователя.
+6. Формат ответа: короткий список конкретных действий ("СДЕЛАТЬ: ...", "ЖДАТЬ: ...", с указанием
+   актива, транша, суммы и причины — триггер или дедлайн). Без лишней воды, без общих рассуждений
+   о рынке, если не спросили отдельно.
+7. Ты не даёшь финансовых советов сверх исполнения уже согласованного пользователем плана — если
+   пользователь спрашивает что-то за пределами плана (менять ли стратегию, покупать ли новый актив),
+   явно скажи, что это выходит за рамки этой функции, и предложи обсудить в обычном чате с Claude.`;
+
+// Разрешённые источники для CORS — сайт на GitHub Pages + локальный сервер
+// для тестирования (см. serve.ps1 в проекте). Если поменяешь адрес сайта —
+// поправь и здесь.
+const ALLOWED_ORIGINS = [
+  "https://vladslastyon-jpg.github.io",
+  "http://localhost:8843",
+];
+
+function corsHeaders(origin) {
+  const allow = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+function json(data, status, headers) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...headers, "Content-Type": "application/json" },
+  });
+}
+
+export default {
+  async fetch(request, env) {
+    const origin = request.headers.get("Origin") || "";
+    const headers = corsHeaders(origin);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers });
+    }
+
+    const url = new URL(request.url);
+    if (url.pathname !== "/api/rebalance-recommendation" || request.method !== "POST") {
+      return json({ error: "not found" }, 404, headers);
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return json({ error: "invalid JSON body" }, 400, headers);
+    }
+
+    const assetPrices = body.asset_prices || {};
+    const planRows = body.plan_rows || [];
+    const today = body.today || new Date().toISOString().slice(0, 10);
+
+    const userMessage =
+      `Текущие данные плана (JSON):\n\n${JSON.stringify({ asset_prices: assetPrices, plan_rows: planRows, today }, null, 2)}\n\n` +
+      `Дай рекомендацию строго по правилам из системного промпта.`;
+
+    let anthropicResp;
+    try {
+      anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-5",
+          max_tokens: 1000,
+          thinking: { type: "disabled" },
+          output_config: { effort: "low" },
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userMessage }],
+        }),
+      });
+    } catch (e) {
+      return json({ error: "upstream request to Anthropic API failed" }, 502, headers);
+    }
+
+    if (!anthropicResp.ok) {
+      const details = await anthropicResp.text();
+      return json({ error: `Anthropic API вернул ошибку ${anthropicResp.status}`, details }, 502, headers);
+    }
+
+    const data = await anthropicResp.json();
+    const textBlock = (data.content || []).find((b) => b.type === "text");
+    const recommendation = textBlock ? textBlock.text : "(пустой ответ от модели)";
+
+    return json({ recommendation, generated_at: new Date().toISOString() }, 200, headers);
+  },
+};
