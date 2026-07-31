@@ -1219,13 +1219,14 @@
   <section class="panel rp-assets-panel" aria-label="Активы — что делать">
     <div class="panel-header">
       <h2>Активы — что делать сейчас</h2>
-      <span class="panel-note">по каждому активу в плане — команда на основе текущей цены и дедлайнов</span>
+      <span class="panel-note">сумма к покупке/продаже — живьём из «портфель 500к» (план минус факт), не вручную</span>
     </div>
     <div class="table-scroll">
       <table class="ledger-table rp-assets-table">
         <thead>
           <tr>
             <th>Актив</th>
+            <th class="num">Докупить/продать, $</th>
             <th class="num">Текущая цена</th>
             <th>Команда</th>
             <th>Пояснение</th>
@@ -1244,7 +1245,9 @@
     <p class="rp-legend">
       <strong>Тип</strong> — покупка (на просадке) или продажа (напр. к сроку). ·
       <strong>Триггер %</strong> — просадка/рост от пика, при которой транш активируется. ·
-      <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено).
+      <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено). ·
+      <strong>Сумма (override)</strong> — оставь пустым/0, чтобы сумма бралась живьём из «портфель 500к»;
+      заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку).
     </p>
     <div class="table-scroll">
       <table class="ledger-table rp-table">
@@ -1256,7 +1259,7 @@
             <th class="num">Триггер %</th>
             <th class="num">Триггер-цена</th>
             <th class="num">Пик</th>
-            <th class="num">Сумма плана, $</th>
+            <th class="num">Сумма (override), $</th>
             <th>Дедлайн</th>
             <th>Статус</th>
             <th>Дата исп.</th>
@@ -1297,6 +1300,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=35"></script>
 </body>
 </html>

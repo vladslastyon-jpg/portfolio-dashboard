@@ -2118,6 +2118,16 @@ return {
     (derived.actualPortfolio?.rows || []).forEach((r) => { if (r.price !== null && r.price !== undefined) map[r.ticker] = r.price; });
     return map;
   },
+  // "Сколько докупить" по тикеру — план минус факт, живьём из листа "портфель 500к"
+  // (для вкладки "План докупок": сумма к покупке берётся отсюда, а не вписывается
+  // руками — таблица траншей задаёт только "когда", не "сколько").
+  getPlanDeltas: () => {
+    const map = {};
+    (derived.planActual?.groups || []).forEach((g) => {
+      g.tickers.forEach((t) => { if (t.deltaUSD !== null && t.deltaUSD !== undefined) map[t.ticker] = t.deltaUSD; });
+    });
+    return map;
+  },
 };
 }
 
@@ -3204,6 +3214,25 @@ function rpGetAssetPrices() {
   return prices;
 }
 
+// "Сколько докупить/продать" по тикеру — живьём из "портфель 500к" (план минус
+// факт). Источник истины по сумме — Sheet, не вручную вписанное "Сумма плана"
+// в таблице траншей (та задаёт только тайминг — триггер/дедлайн).
+function rpGetPlanDeltas() {
+  const deltas = {};
+  if (mainProfile.getPlanDeltas) Object.assign(deltas, mainProfile.getPlanDeltas());
+  return deltas;
+}
+
+// Сумма, которую показывать/рекомендовать для конкретного транша: если в
+// строке транша вручную указана "Сумма плана" (например для продажи GOOGL,
+// которая не выражается через план/факт portfolio500k) — используем её;
+// иначе — живой остаток "нужно докупить" по этому активу из Sheet.
+function rpTrancheAmount(t, deltas) {
+  if (t.amountPlan !== null && t.amountPlan !== undefined && t.amountPlan !== "" && t.amountPlan !== 0) return t.amountPlan;
+  const delta = deltas[t.asset];
+  return delta !== null && delta !== undefined ? delta : null;
+}
+
 // Логика триггера — та же, что зашита в системный промпт Worker'а (раздел 4
 // ТЗ): срабатывает по цене ИЛИ по дедлайну (гибрид — не ждать бесконечно).
 // Для покупки (side="buy") триггер — цена УПАЛА до trigger_price или ниже
@@ -3224,47 +3253,62 @@ function rpComputeLiveStatus(t, prices, todayISO) {
   return { label: "ждать", cls: "rp-badge--wait", triggered: false };
 }
 
+function rpFmtUSD(value) {
+  if (value === null || value === undefined || value === "" || isNaN(value)) return "—";
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
 // Сводка "актив → что делать сейчас": один ряд на каждый актив, встречающийся
-// в плане (динамически, без жёстко зашитого списка тикеров).
+// в плане (динамически, без жёстко зашитого списка тикеров). Сумма к покупке —
+// живой остаток "план минус факт" из "портфель 500к", не вручную вписанная
+// (см. rpTrancheAmount/rpGetPlanDeltas) — таблица траншей ниже задаёт только тайминг.
 function rpRenderAssetsSummary() {
   const body = document.getElementById("rpAssetsBody");
   if (!body) return;
   body.innerHTML = "";
   const prices = rpGetAssetPrices();
+  const deltas = rpGetPlanDeltas();
   const today = rpTodayISO();
 
   const assets = [];
   rpTranches.forEach((t) => { if (t.asset && !assets.includes(t.asset)) assets.push(t.asset); });
 
   if (!assets.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty-row">В плане пока нет ни одного транша — добавь их в таблице ниже.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty-row">В плане пока нет ни одного транша — добавь их в таблице ниже.</td></tr>';
     return;
   }
 
   assets.forEach((asset) => {
     const pending = rpTranches.filter((t) => t.asset === asset && t.status === "pending");
     const price = prices[asset];
+    const delta = deltas[asset];
     const triggered = pending
       .map((t) => ({ t, live: rpComputeLiveStatus(t, prices, today) }))
       .filter((x) => x.live.triggered);
 
-    let command, cls, explain;
+    let command, cls, explain, amountText;
     if (!pending.length) {
       command = "—"; cls = "rp-cmd--hold";
       explain = "нет ожидающих траншей по этому активу";
+      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
     } else if (triggered.length) {
       const verbs = [...new Set(triggered.map((x) => (x.t.side === "sell" ? "ПРОДАВАТЬ" : "ПОКУПАТЬ")))];
       command = verbs.join(" / "); cls = "rp-cmd--act";
       explain = triggered.map((x) => `транш №${x.t.tranche ?? "?"}: ${x.live.label.toLowerCase()}`).join("; ");
+      const amounts = triggered.map((x) => rpTrancheAmount(x.t, deltas)).filter((a) => a !== null && a !== undefined);
+      amountText = amounts.length ? amounts.map(rpFmtUSD).join(" + ") : "—";
     } else {
       command = "ДЕРЖАТЬ"; cls = "rp-cmd--hold";
       const nearest = pending[0];
       explain = `ближайший транш №${nearest.tranche ?? "?"}: триггер ${nearest.triggerPrice || "—"}${nearest.deadline ? `, дедлайн ${nearest.deadline}` : ""}`;
+      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
     }
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${bgEsc(asset)}</td>
+      <td class="num">${amountText}</td>
       <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
       <td><span class="rp-cmd ${cls}">${command}</span></td>
       <td class="rp-explain">${bgEsc(explain)}</td>`;
@@ -3377,7 +3421,12 @@ async function rpRefreshRecommendation() {
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset_prices: rpGetAssetPrices(), plan_rows: planRows, today: rpTodayISO() }),
+      body: JSON.stringify({
+        asset_prices: rpGetAssetPrices(),
+        plan_deltas: rpGetPlanDeltas(),
+        plan_rows: planRows,
+        today: rpTodayISO(),
+      }),
     });
     if (!resp.ok) throw new Error(`Worker вернул ошибку ${resp.status}`);
     const data = await resp.json();
