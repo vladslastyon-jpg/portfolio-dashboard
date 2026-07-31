@@ -2148,6 +2148,9 @@ return {
     });
     return peaks;
   },
+  // Текущий свободный кэш (для вкладки "План докупок" — сколько денег не
+  // хватает на весь план докупок: сумма нужного минус то, что уже есть в кэше).
+  getCashOnHand: () => getCashValue(),
 };
 }
 
@@ -3198,6 +3201,10 @@ const RP_STORAGE_KEY = "rebalancePlan_v1";
 // side: "buy" (докупка на просадке) | "sell" (продажа — напр. к дедлайну).
 let rpTranches = [];
 let rpWorkerUrl = "";
+// Дата "закрытия операции" по каждому активу — пользователь вводит её в
+// таблице "Активы — что делать сейчас"; на основе неё генерируются/пересобираются
+// транши в таблице ниже (см. rpGenerateTranches).
+let rpCloseDates = {};
 
 function rpUid() {
   return `rp${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -3210,7 +3217,7 @@ function rpTodayISO() {
 }
 
 function rpSaveState() {
-  localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({ tranches: rpTranches, workerUrl: rpWorkerUrl }));
+  localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({ tranches: rpTranches, workerUrl: rpWorkerUrl, closeDates: rpCloseDates }));
 }
 
 function rpLoadState() {
@@ -3220,6 +3227,7 @@ function rpLoadState() {
       const data = JSON.parse(raw);
       if (Array.isArray(data.tranches)) rpTranches = data.tranches;
       if (typeof data.workerUrl === "string") rpWorkerUrl = data.workerUrl;
+      if (data.closeDates && typeof data.closeDates === "object") rpCloseDates = data.closeDates;
     }
   } catch (e) { /* повреждённые данные в localStorage — просто игнорируем, останутся дефолты */ }
 
@@ -3258,6 +3266,10 @@ function rpGetAssetPeaks() {
   const peaks = {};
   if (mainProfile.getAssetPeaks) Object.assign(peaks, mainProfile.getAssetPeaks());
   return peaks;
+}
+
+function rpGetCashOnHand() {
+  return mainProfile.getCashOnHand ? mainProfile.getCashOnHand() : null;
 }
 
 // "Сколько докупить/продать" по тикеру — живьём из "портфель 500к" (план минус
@@ -3307,6 +3319,35 @@ function rpFmtUSD(value) {
   return `${sign}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
+// KPI "сколько денег не хватает на весь план докупок": сумма всех положительных
+// дельт (нужно докупить) по "портфель 500к", кроме Cash, минус свободный кэш
+// сейчас. Продажи (отрицательные дельты вроде GOOGL) сюда не засчитываются как
+// источник денег — они ещё не исполнены, лучше не переоценивать запас заранее.
+function rpRenderMoneyKpi() {
+  const neededEl = document.getElementById("rpKpiNeeded");
+  const cashEl = document.getElementById("rpKpiCash");
+  const shortfallEl = document.getElementById("rpKpiShortfall");
+  if (!neededEl) return;
+
+  const deltas = rpGetPlanDeltas();
+  const needed = Object.entries(deltas)
+    .filter(([ticker, v]) => ticker !== "Cash" && v > 0)
+    .reduce((sum, [, v]) => sum + v, 0);
+  const cash = rpGetCashOnHand();
+  const hasData = Object.keys(deltas).length > 0 && cash !== null;
+
+  neededEl.textContent = hasData ? rpFmtUSD(needed) : "—";
+  cashEl.textContent = cash !== null ? rpFmtUSD(cash) : "—";
+  if (hasData) {
+    const shortfall = needed - cash;
+    shortfallEl.textContent = rpFmtUSD(shortfall);
+    shortfallEl.className = `kpi-value ${shortfall > 0 ? "is-negative" : "is-positive"}`;
+  } else {
+    shortfallEl.textContent = "—";
+    shortfallEl.className = "kpi-value";
+  }
+}
+
 // Сводка "актив → что делать сейчас": по одному ряду на каждый актив, у
 // которого либо есть настроенный транш, либо есть живая дельта план/факт из
 // "портфель 500к" (кроме Cash — это не торгуемый актив). Так активы без
@@ -3329,7 +3370,7 @@ function rpRenderAssetsSummary() {
   });
 
   if (!assets.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
     return;
   }
 
@@ -3337,16 +3378,19 @@ function rpRenderAssetsSummary() {
     const pending = rpTranches.filter((t) => t.asset === asset && t.status === "pending");
     const price = prices[asset];
     const delta = deltas[asset];
+    const hasConfiguredTranche = rpTranches.some((t) => t.asset === asset);
+    const closeDate = rpCloseDates[asset] || "";
     const triggered = pending
       .map((t) => ({ t, live: rpComputeLiveStatus(t, prices, today) }))
       .filter((x) => x.live.triggered);
 
-    let command, cls, explain, amountText, needsGenerateBtn = false;
-    if (!pending.length && !rpTranches.some((t) => t.asset === asset)) {
+    let command, cls, explain, amountText;
+    if (!pending.length && !hasConfiguredTranche) {
       command = "СМ. РЕКОМЕНДАЦИЮ"; cls = "rp-cmd--hold";
-      explain = "триггер/тайминг не настроен — жми «Обновить рекомендацию» за советом или сгенерируй черновые транши автоматически →";
+      explain = closeDate
+        ? "дата закрытия указана, но транши ещё не сгенерированы — измени дату ещё раз, чтобы пересобрать"
+        : "укажи дату закрытия операции слева → транши ниже соберутся автоматически, или жми «Обновить рекомендацию» за советом";
       amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
-      needsGenerateBtn = delta !== null && delta !== undefined && delta !== 0;
     } else if (!pending.length) {
       command = "—"; cls = "rp-cmd--hold";
       explain = "нет ожидающих траншей по этому активу";
@@ -3369,11 +3413,14 @@ function rpRenderAssetsSummary() {
       <td>${bgEsc(asset)}</td>
       <td class="num">${amountText}</td>
       <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
+      <td><input type="date" class="rp-close-date-input" value="${closeDate}" /></td>
       <td><span class="rp-cmd ${cls}">${command}</span></td>
-      <td class="rp-explain">${bgEsc(explain)}${needsGenerateBtn ? ' <button class="rp-generate-btn" type="button">Сгенерировать 3 транша</button>' : ""}</td>`;
-    if (needsGenerateBtn) {
-      tr.querySelector(".rp-generate-btn").addEventListener("click", () => rpGenerateTranches(asset));
-    }
+      <td class="rp-explain">${bgEsc(explain)}</td>`;
+    tr.querySelector(".rp-close-date-input").addEventListener("change", (e) => {
+      const val = e.target.value;
+      if (val) { rpCloseDates[asset] = val; rpGenerateTranches(asset); }
+      else { delete rpCloseDates[asset]; rpRenderAll(); rpSaveState(); }
+    });
     body.appendChild(tr);
   });
 }
@@ -3441,6 +3488,7 @@ function rpRenderTable() {
 }
 
 function rpRenderAll() {
+  rpRenderMoneyKpi();
   rpRenderAssetsSummary();
   rpRenderTable();
 }
@@ -3461,22 +3509,35 @@ function rpAddTranche() {
 // ниже текущей цены (иначе триггер получился бы уже пройденным задним числом).
 // Суммы округляются до сотен долларов (реальный размер сделки, не копейки
 // живой дельты). Дедлайны — гибрид с триггером, чтобы транш не ждал просадки
-// бесконечно: 3/6/9 месяцев от сегодня (мельче просадка — ближе дедлайн).
+// бесконечно: распределяются между сегодня и "датой закрытия операции",
+// которую пользователь вводит по активу в таблице "Активы — что делать"
+// (мельче просадка — ближе дедлайн, глубже — ближе к самой дате закрытия).
+// Перегенерирует (не копит дубли): старые "авто"-транши по этому активу
+// удаляются перед созданием новых — вручную добавленные/отредактированные
+// (с другим значением "Цикл") не трогает.
 const RP_AUTO_TRIGGER_LEVELS = [-10, -20, -30];
-const RP_AUTO_DEADLINE_MONTHS = [3, 6, 9];
 
 function rpRoundToHundred(v) {
   return Math.round(v / 100) * 100;
 }
 
-function rpAddMonths(dateISO, months) {
+function rpAddDays(dateISO, days) {
   const d = new Date(dateISO + "T00:00:00");
-  d.setMonth(d.getMonth() + months);
+  d.setDate(d.getDate() + days);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function rpDaysBetween(fromISO, toISO) {
+  const from = new Date(fromISO + "T00:00:00");
+  const to = new Date(toISO + "T00:00:00");
+  return Math.round((to.getTime() - from.getTime()) / 86400000);
+}
+
 function rpGenerateTranches(asset) {
+  const closeDate = rpCloseDates[asset];
+  if (!closeDate) return;
+
   const deltas = rpGetPlanDeltas();
   const prices = rpGetAssetPrices();
   const peaks = rpGetAssetPeaks();
@@ -3488,19 +3549,26 @@ function rpGenerateTranches(asset) {
   const price = prices[asset] || 0;
   const historicalPeak = peaks[asset] || 0;
   const peak = Math.max(historicalPeak, price) || price;
-  const existingCount = rpTranches.filter((t) => t.asset === asset).length;
   const today = rpTodayISO();
+
+  // Перегенерация: убираем прошлые авто-транши этого актива, чтобы не копить дубли.
+  rpTranches = rpTranches.filter((t) => !(t.asset === asset && t.cycle === "авто"));
+  const existingCount = rpTranches.filter((t) => t.asset === asset).length;
 
   const n = RP_AUTO_TRIGGER_LEVELS.length;
   const rawBase = Math.floor(totalAmount / n);
   const rawAmounts = RP_AUTO_TRIGGER_LEVELS.map((_, i) => (i === n - 1 ? totalAmount - rawBase * (n - 1) : rawBase));
   const amounts = rawAmounts.map((a) => Math.max(100, rpRoundToHundred(a)));
 
+  // Дедлайны на 1/3, 2/3 и полном сроке до даты закрытия (не раньше сегодня+1 день).
+  const totalDays = Math.max(1, rpDaysBetween(today, closeDate));
+  const deadlineDays = [Math.round(totalDays / 3), Math.round((2 * totalDays) / 3), totalDays];
+
   RP_AUTO_TRIGGER_LEVELS.forEach((pct, i) => {
     const triggerPrice = peak ? Math.round(peak * (1 + pct / 100) * 100) / 100 : "";
     rpTranches.push({
       id: rpUid(), asset, side, tranche: existingCount + i + 1, triggerPct: pct, triggerPrice,
-      peakRef: peak || "", amountPlan: amounts[i], deadline: rpAddMonths(today, RP_AUTO_DEADLINE_MONTHS[i]),
+      peakRef: peak || "", amountPlan: amounts[i], deadline: rpAddDays(today, deadlineDays[i]),
       status: "pending", execDate: "", execPrice: "", execAmount: "", cycle: "авто",
     });
   });

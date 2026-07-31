@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=32" />
+<link rel="stylesheet" href="style.css?v=33" />
 </head>
 <body>
 
@@ -1216,6 +1216,23 @@
     </label>
   </section>
 
+  <section class="panel pension-kpi-panel rp-kpi-panel" aria-label="Не хватает денег на план">
+    <div class="kpi-cell">
+      <div class="kpi-label">Нужно на все докупки, $</div>
+      <div class="kpi-value" id="rpKpiNeeded">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Свободный кэш сейчас, $</div>
+      <div class="kpi-value" id="rpKpiCash">—</div>
+    </div>
+    <div class="kpi-divider" aria-hidden="true"></div>
+    <div class="kpi-cell">
+      <div class="kpi-label">Не хватает / запас, $</div>
+      <div class="kpi-value" id="rpKpiShortfall">—</div>
+    </div>
+  </section>
+
   <section class="panel rp-assets-panel" aria-label="Активы — что делать">
     <div class="panel-header">
       <h2>Активы — что делать сейчас</h2>
@@ -1228,6 +1245,7 @@
             <th>Актив</th>
             <th class="num">Докупить/продать, $</th>
             <th class="num">Текущая цена</th>
+            <th>Дата закрытия</th>
             <th>Команда</th>
             <th>Пояснение</th>
           </tr>
@@ -1248,9 +1266,10 @@
       <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено). ·
       <strong>Сумма (override)</strong> — оставь пустым/0, чтобы сумма бралась живьём из «портфель 500к»;
       заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку). ·
-      Транши с циклом «авто» — черновая раскладка (кнопка «Сгенерировать 3 транша» выше): -10%/-20%/-30%
-      от исторического пика, сумма поровну (округлена до сотен $), дедлайны 3/6/9 месяцев — правь любое
-      поле как обычную ручную строку.
+      Транши с циклом «авто» — черновая раскладка: укажи «Дату закрытия» по активу в таблице выше,
+      и здесь появятся 3 транша (-10%/-20%/-30% от исторического пика, сумма поровну округлена до
+      сотен $, дедлайны на 1/3 · 2/3 · всём сроке до даты закрытия) — правь любое поле как обычную
+      ручную строку, смена даты закрытия пересоберёт авто-транши заново.
     </p>
     <div class="table-scroll">
       <table class="ledger-table rp-table">
@@ -1303,6 +1322,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=39"></script>
+<script src="app.js?v=41"></script>
 </body>
 </html>
