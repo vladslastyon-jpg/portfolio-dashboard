@@ -3276,10 +3276,13 @@ function rpFmtUSD(value) {
   return `${sign}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-// Сводка "актив → что делать сейчас": один ряд на каждый актив, встречающийся
-// в плане (динамически, без жёстко зашитого списка тикеров). Сумма к покупке —
-// живой остаток "план минус факт" из "портфель 500к", не вручную вписанная
-// (см. rpTrancheAmount/rpGetPlanDeltas) — таблица траншей ниже задаёт только тайминг.
+// Сводка "актив → что делать сейчас": по одному ряду на каждый актив, у
+// которого либо есть настроенный транш, либо есть живая дельта план/факт из
+// "портфель 500к" (кроме Cash — это не торгуемый актив). Так активы без
+// вручную настроенного триггера (CSPX, SOXX и т.п.) тоже видны сразу — по
+// ним статус "см. рекомендацию": точный тайминг ещё не задан, но кнопка
+// "Обновить рекомендацию" всё равно даст совет от Claude по цене/времени,
+// используя эту же живую сумму.
 function rpRenderAssetsSummary() {
   const body = document.getElementById("rpAssetsBody");
   if (!body) return;
@@ -3290,9 +3293,12 @@ function rpRenderAssetsSummary() {
 
   const assets = [];
   rpTranches.forEach((t) => { if (t.asset && !assets.includes(t.asset)) assets.push(t.asset); });
+  Object.keys(deltas).forEach((ticker) => {
+    if (ticker !== "Cash" && !assets.includes(ticker)) assets.push(ticker);
+  });
 
   if (!assets.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty-row">В плане пока нет ни одного транша — добавь их в таблице ниже.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
     return;
   }
 
@@ -3305,7 +3311,11 @@ function rpRenderAssetsSummary() {
       .filter((x) => x.live.triggered);
 
     let command, cls, explain, amountText;
-    if (!pending.length) {
+    if (!pending.length && !rpTranches.some((t) => t.asset === asset)) {
+      command = "СМ. РЕКОМЕНДАЦИЮ"; cls = "rp-cmd--hold";
+      explain = "триггер/тайминг для этого актива не настроен — нажми «Обновить рекомендацию» ниже за советом от Claude";
+      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
+    } else if (!pending.length) {
       command = "—"; cls = "rp-cmd--hold";
       explain = "нет ожидающих траншей по этому активу";
       amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
