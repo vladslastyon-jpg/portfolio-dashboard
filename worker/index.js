@@ -94,9 +94,21 @@ export default {
     const planRows = body.plan_rows || [];
     const today = body.today || new Date().toISOString().slice(0, 10);
 
+    // Считаем детерминированно в коде (не полагаемся на то, что модель сама
+    // сверит два списка) — какие активы из plan_deltas НЕ покрыты ни одним
+    // траншем в plan_rows. Именно по ним нужно правило 8 (см. системный
+    // промпт) — явное "ПРЕДЛОЖЕНИЕ" по тайнингу, а не молчание.
+    const coveredAssets = new Set(planRows.map((r) => r.asset));
+    const uncoveredAssets = Object.keys(planDeltas).filter((asset) => !coveredAssets.has(asset));
+
     const userMessage =
       `Текущие данные плана (JSON):\n\n${JSON.stringify({ asset_prices: assetPrices, plan_deltas: planDeltas, plan_rows: planRows, today }, null, 2)}\n\n` +
-      `Дай рекомендацию строго по правилам из системного промпта.`;
+      (uncoveredAssets.length
+        ? `Активы БЕЗ настроенного транша (нет ни одной строки в plan_rows), но с суммой в plan_deltas — ` +
+          `по КАЖДОМУ из них обязательно дай отдельный пункт "ПРЕДЛОЖЕНИЕ" по правилу 8, не пропускай ни один: ` +
+          `${uncoveredAssets.join(", ")}.\n\n`
+        : "") +
+      `Дай рекомендацию строго по правилам из системного промпта — пройдись по всем активам из plan_rows И по всем перечисленным выше неохваченным активам.`;
 
     let anthropicResp;
     try {
@@ -111,7 +123,7 @@ export default {
           model: "claude-sonnet-5",
           max_tokens: 1000,
           thinking: { type: "disabled" },
-          output_config: { effort: "low" },
+          output_config: { effort: "medium" },
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userMessage }],
         }),
