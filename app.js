@@ -2128,6 +2128,26 @@ return {
     });
     return map;
   },
+  // Исторический пик (максимальная цена закрытия) по тикеру за весь доступный
+  // Asset_History — нужен для автогенерации триггерной сетки траншей (вкладка
+  // "План докупок"), чтобы не спрашивать у пользователя вручную "от какой цены
+  // считать просадку".
+  getAssetPeaks: () => {
+    const rows = raw.assetHistory || [];
+    const peaks = {};
+    if (rows.length < 2) return peaks;
+    const header = rows[0];
+    header.forEach((ticker, colIdx) => {
+      if (!ticker || colIdx === 0) return;
+      let max = null;
+      for (let i = 1; i < rows.length; i++) {
+        const v = parseNum(rows[i][colIdx]);
+        if (v && (max === null || v > max)) max = v;
+      }
+      if (max !== null) peaks[ticker] = max;
+    });
+    return peaks;
+  },
 };
 }
 
@@ -3229,6 +3249,12 @@ function rpGetAssetPrices() {
   return prices;
 }
 
+function rpGetAssetPeaks() {
+  const peaks = {};
+  if (mainProfile.getAssetPeaks) Object.assign(peaks, mainProfile.getAssetPeaks());
+  return peaks;
+}
+
 // "Сколько докупить/продать" по тикеру — живьём из "портфель 500к" (план минус
 // факт). Источник истины по сумме — Sheet, не вручную вписанное "Сумма плана"
 // в таблице траншей (та задаёт только тайминг — триггер/дедлайн).
@@ -3310,11 +3336,12 @@ function rpRenderAssetsSummary() {
       .map((t) => ({ t, live: rpComputeLiveStatus(t, prices, today) }))
       .filter((x) => x.live.triggered);
 
-    let command, cls, explain, amountText;
+    let command, cls, explain, amountText, needsGenerateBtn = false;
     if (!pending.length && !rpTranches.some((t) => t.asset === asset)) {
       command = "СМ. РЕКОМЕНДАЦИЮ"; cls = "rp-cmd--hold";
-      explain = "триггер/тайминг для этого актива не настроен — нажми «Обновить рекомендацию» ниже за советом от Claude";
+      explain = "триггер/тайминг не настроен — жми «Обновить рекомендацию» за советом или сгенерируй черновые транши автоматически →";
       amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
+      needsGenerateBtn = delta !== null && delta !== undefined && delta !== 0;
     } else if (!pending.length) {
       command = "—"; cls = "rp-cmd--hold";
       explain = "нет ожидающих траншей по этому активу";
@@ -3338,7 +3365,10 @@ function rpRenderAssetsSummary() {
       <td class="num">${amountText}</td>
       <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
       <td><span class="rp-cmd ${cls}">${command}</span></td>
-      <td class="rp-explain">${bgEsc(explain)}</td>`;
+      <td class="rp-explain">${bgEsc(explain)}${needsGenerateBtn ? ' <button class="rp-generate-btn" type="button">Сгенерировать 3 транша</button>' : ""}</td>`;
+    if (needsGenerateBtn) {
+      tr.querySelector(".rp-generate-btn").addEventListener("click", () => rpGenerateTranches(asset));
+    }
     body.appendChild(tr);
   });
 }
@@ -3415,6 +3445,44 @@ function rpAddTranche() {
     id: rpUid(), asset: "", side: "buy", tranche: rpTranches.length + 1, triggerPct: -20, triggerPrice: "",
     peakRef: "", amountPlan: "", deadline: "", status: "pending",
     execDate: "", execPrice: "", execAmount: "", cycle: "",
+  });
+  rpRenderAll();
+  rpSaveState();
+}
+
+// Разбить всю сумму "нужно докупить/продать" по активу на 3 транша с
+// триггерами -10% / -20% / -30% от исторического пика (Asset_History) —
+// вместо того чтобы просить пользователя считать это руками. Пик берётся не
+// ниже текущей цены (иначе триггер получился бы уже пройденным задним числом).
+// Дедлайн намеренно не ставится — это черновая раскладка, пользователь может
+// подправить любое поле или добавить дедлайн сам.
+const RP_AUTO_TRIGGER_LEVELS = [-10, -20, -30];
+
+function rpGenerateTranches(asset) {
+  const deltas = rpGetPlanDeltas();
+  const prices = rpGetAssetPrices();
+  const peaks = rpGetAssetPeaks();
+  const delta = deltas[asset];
+  if (delta === null || delta === undefined || delta === 0) return;
+
+  const side = delta < 0 ? "sell" : "buy";
+  const totalAmount = Math.abs(delta);
+  const price = prices[asset] || 0;
+  const historicalPeak = peaks[asset] || 0;
+  const peak = Math.max(historicalPeak, price) || price;
+  const existingCount = rpTranches.filter((t) => t.asset === asset).length;
+
+  const n = RP_AUTO_TRIGGER_LEVELS.length;
+  const base = Math.floor(totalAmount / n);
+  const amounts = RP_AUTO_TRIGGER_LEVELS.map((_, i) => (i === n - 1 ? totalAmount - base * (n - 1) : base));
+
+  RP_AUTO_TRIGGER_LEVELS.forEach((pct, i) => {
+    const triggerPrice = peak ? Math.round(peak * (1 + pct / 100) * 100) / 100 : "";
+    rpTranches.push({
+      id: rpUid(), asset, side, tranche: existingCount + i + 1, triggerPct: pct, triggerPrice,
+      peakRef: peak || "", amountPlan: amounts[i], deadline: "", status: "pending",
+      execDate: "", execPrice: "", execAmount: "", cycle: "авто",
+    });
   });
   rpRenderAll();
   rpSaveState();

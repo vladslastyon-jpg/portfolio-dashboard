@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=31" />
+<link rel="stylesheet" href="style.css?v=32" />
 </head>
 <body>
 
@@ -1247,7 +1247,9 @@
       <strong>Триггер %</strong> — просадка/рост от пика, при которой транш активируется. ·
       <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено). ·
       <strong>Сумма (override)</strong> — оставь пустым/0, чтобы сумма бралась живьём из «портфель 500к»;
-      заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку).
+      заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку). ·
+      Транши с циклом «авто» — черновая раскладка (кнопка «Сгенерировать 3 транша» выше): -10%/-20%/-30%
+      от исторического пика, сумма поровну — правь любое поле как обычную ручную строку.
     </p>
     <div class="table-scroll">
       <table class="ledger-table rp-table">
@@ -1300,6 +1302,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 </body>
 </html>
