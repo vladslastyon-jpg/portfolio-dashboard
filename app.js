@@ -3201,11 +3201,26 @@ function rpSaveState() {
 function rpLoadState() {
   try {
     const raw = localStorage.getItem(RP_STORAGE_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (Array.isArray(data.tranches)) rpTranches = data.tranches;
-    if (typeof data.workerUrl === "string") rpWorkerUrl = data.workerUrl;
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.tranches)) rpTranches = data.tranches;
+      if (typeof data.workerUrl === "string") rpWorkerUrl = data.workerUrl;
+    }
   } catch (e) { /* повреждённые данные в localStorage — просто игнорируем, останутся дефолты */ }
+
+  // Одноразовая миграция: план "избавиться от GOOGL к концу года" — сумма уже
+  // считается сама (план по GOOGL в "портфель 500к" обнулён, факт минус план
+  // даёт нужную сумму продажи), здесь нужен только дедлайн. Добавляется
+  // автоматически при первом заходе, если такого транша ещё нет — руками
+  // вводить не нужно.
+  if (!rpTranches.some((t) => t.asset === "GOOGL")) {
+    rpTranches.push({
+      id: "rp-seed-googl-sell", asset: "GOOGL", side: "sell", tranche: 1, triggerPct: "",
+      triggerPrice: "", peakRef: "", amountPlan: "", deadline: "2026-12-31", status: "pending",
+      execDate: "", execPrice: "", execAmount: "", cycle: "2026-divest",
+    });
+    rpSaveState();
+  }
 }
 
 function rpGetAssetPrices() {
@@ -3224,13 +3239,15 @@ function rpGetPlanDeltas() {
 }
 
 // Сумма, которую показывать/рекомендовать для конкретного транша: если в
-// строке транша вручную указана "Сумма плана" (например для продажи GOOGL,
-// которая не выражается через план/факт portfolio500k) — используем её;
-// иначе — живой остаток "нужно докупить" по этому активу из Sheet.
+// строке транша вручную указана "Сумма плана" (override) — используем её;
+// иначе — живой остаток из Sheet ("план минус факт" по этому активу).
+// Возвращается модуль суммы — знак (докупить/продать) уже несёт "Команда"/"Тип",
+// дублировать его в сумме не нужно (для "продать" в Sheet дельта отрицательна —
+// факт больше плана, т.е. актив в избытке).
 function rpTrancheAmount(t, deltas) {
-  if (t.amountPlan !== null && t.amountPlan !== undefined && t.amountPlan !== "" && t.amountPlan !== 0) return t.amountPlan;
+  if (t.amountPlan !== null && t.amountPlan !== undefined && t.amountPlan !== "" && t.amountPlan !== 0) return Math.abs(t.amountPlan);
   const delta = deltas[t.asset];
-  return delta !== null && delta !== undefined ? delta : null;
+  return delta !== null && delta !== undefined ? Math.abs(delta) : null;
 }
 
 // Логика триггера — та же, что зашита в системный промпт Worker'а (раздел 4
