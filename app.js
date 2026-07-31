@@ -3205,6 +3205,8 @@ let rpWorkerUrl = "";
 // таблице "Активы — что делать сейчас"; на основе неё генерируются/пересобираются
 // транши в таблице ниже (см. rpGenerateTranches).
 let rpCloseDates = {};
+// Количество траншей на актив (по умолчанию 3) — тоже задаётся в той же таблице.
+let rpTrancheCounts = {};
 
 function rpUid() {
   return `rp${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -3217,7 +3219,9 @@ function rpTodayISO() {
 }
 
 function rpSaveState() {
-  localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({ tranches: rpTranches, workerUrl: rpWorkerUrl, closeDates: rpCloseDates }));
+  localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({
+    tranches: rpTranches, workerUrl: rpWorkerUrl, closeDates: rpCloseDates, trancheCounts: rpTrancheCounts,
+  }));
 }
 
 function rpLoadState() {
@@ -3226,6 +3230,7 @@ function rpLoadState() {
     if (raw) {
       const data = JSON.parse(raw);
       if (Array.isArray(data.tranches)) rpTranches = data.tranches;
+      if (data.trancheCounts && typeof data.trancheCounts === "object") rpTrancheCounts = data.trancheCounts;
       if (typeof data.workerUrl === "string") rpWorkerUrl = data.workerUrl;
       if (data.closeDates && typeof data.closeDates === "object") rpCloseDates = data.closeDates;
     }
@@ -3370,7 +3375,7 @@ function rpRenderAssetsSummary() {
   });
 
   if (!assets.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
     return;
   }
 
@@ -3408,18 +3413,27 @@ function rpRenderAssetsSummary() {
       amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
     }
 
+    const trancheCount = rpTrancheCounts[asset] || RP_DEFAULT_TRANCHE_COUNT;
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${bgEsc(asset)}</td>
       <td class="num">${amountText}</td>
       <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
       <td><input type="date" class="rp-close-date-input" value="${closeDate}" /></td>
+      <td class="num"><input type="number" class="rp-tranche-count-input" min="1" max="12" step="1" value="${trancheCount}" /></td>
       <td><span class="rp-cmd ${cls}">${command}</span></td>
       <td class="rp-explain">${bgEsc(explain)}</td>`;
     tr.querySelector(".rp-close-date-input").addEventListener("change", (e) => {
       const val = e.target.value;
       if (val) { rpCloseDates[asset] = val; rpGenerateTranches(asset); }
       else { delete rpCloseDates[asset]; rpRenderAll(); rpSaveState(); }
+    });
+    tr.querySelector(".rp-tranche-count-input").addEventListener("change", (e) => {
+      const n = Math.max(1, Math.round(parseNum(e.target.value)) || RP_DEFAULT_TRANCHE_COUNT);
+      rpTrancheCounts[asset] = n;
+      if (rpCloseDates[asset]) rpGenerateTranches(asset);
+      else { rpRenderAll(); rpSaveState(); }
     });
     body.appendChild(tr);
   });
@@ -3503,19 +3517,20 @@ function rpAddTranche() {
   rpSaveState();
 }
 
-// Разбить всю сумму "нужно докупить/продать" по активу на 3 транша с
-// триггерами -10% / -20% / -30% от исторического пика (Asset_History) —
+// Разбить всю сумму "нужно докупить/продать" по активу на N траншей (по
+// умолчанию 3, но настраивается в таблице "Активы — что делать") с триггерами
+// -10%, -20%, -30%, ... (шаг -10% на транш) от исторического пика (Asset_History) —
 // вместо того чтобы просить пользователя считать это руками. Пик берётся не
 // ниже текущей цены (иначе триггер получился бы уже пройденным задним числом).
 // Суммы округляются до сотен долларов (реальный размер сделки, не копейки
 // живой дельты). Дедлайны — гибрид с триггером, чтобы транш не ждал просадки
-// бесконечно: распределяются между сегодня и "датой закрытия операции",
-// которую пользователь вводит по активу в таблице "Активы — что делать"
-// (мельче просадка — ближе дедлайн, глубже — ближе к самой дате закрытия).
-// Перегенерирует (не копит дубли): старые "авто"-транши по этому активу
-// удаляются перед созданием новых — вручную добавленные/отредактированные
+// бесконечно: распределяются равномерно между сегодня и "датой закрытия
+// операции" (мельче просадка — ближе дедлайн, глубже — ближе к самой дате
+// закрытия). Перегенерирует (не копит дубли): старые "авто"-транши по этому
+// активу удаляются перед созданием новых — вручную добавленные/отредактированные
 // (с другим значением "Цикл") не трогает.
-const RP_AUTO_TRIGGER_LEVELS = [-10, -20, -30];
+const RP_DEFAULT_TRANCHE_COUNT = 3;
+const RP_AUTO_TRIGGER_STEP_PCT = -10;
 
 function rpRoundToHundred(v) {
   return Math.round(v / 100) * 100;
@@ -3555,16 +3570,18 @@ function rpGenerateTranches(asset) {
   rpTranches = rpTranches.filter((t) => !(t.asset === asset && t.cycle === "авто"));
   const existingCount = rpTranches.filter((t) => t.asset === asset).length;
 
-  const n = RP_AUTO_TRIGGER_LEVELS.length;
+  const n = Math.max(1, Math.round(rpTrancheCounts[asset] || RP_DEFAULT_TRANCHE_COUNT));
+  const levels = Array.from({ length: n }, (_, i) => RP_AUTO_TRIGGER_STEP_PCT * (i + 1));
+
   const rawBase = Math.floor(totalAmount / n);
-  const rawAmounts = RP_AUTO_TRIGGER_LEVELS.map((_, i) => (i === n - 1 ? totalAmount - rawBase * (n - 1) : rawBase));
+  const rawAmounts = levels.map((_, i) => (i === n - 1 ? totalAmount - rawBase * (n - 1) : rawBase));
   const amounts = rawAmounts.map((a) => Math.max(100, rpRoundToHundred(a)));
 
-  // Дедлайны на 1/3, 2/3 и полном сроке до даты закрытия (не раньше сегодня+1 день).
+  // Дедлайны равномерно на 1/n, 2/n, ..., n/n срока до даты закрытия.
   const totalDays = Math.max(1, rpDaysBetween(today, closeDate));
-  const deadlineDays = [Math.round(totalDays / 3), Math.round((2 * totalDays) / 3), totalDays];
+  const deadlineDays = levels.map((_, i) => Math.round((totalDays * (i + 1)) / n));
 
-  RP_AUTO_TRIGGER_LEVELS.forEach((pct, i) => {
+  levels.forEach((pct, i) => {
     const triggerPrice = peak ? Math.round(peak * (1 + pct / 100) * 100) / 100 : "";
     rpTranches.push({
       id: rpUid(), asset, side, tranche: existingCount + i + 1, triggerPct: pct, triggerPrice,

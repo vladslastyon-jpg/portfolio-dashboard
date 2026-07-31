@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=33" />
+<link rel="stylesheet" href="style.css?v=34" />
 </head>
 <body>
 
@@ -1240,12 +1240,17 @@
     </div>
     <div class="table-scroll">
       <table class="ledger-table rp-assets-table">
+        <colgroup>
+          <col style="width:9%"><col style="width:13%"><col style="width:10%">
+          <col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:33%">
+        </colgroup>
         <thead>
           <tr>
             <th>Актив</th>
             <th class="num">Докупить/продать, $</th>
             <th class="num">Текущая цена</th>
             <th>Дата закрытия</th>
+            <th class="num">Кол-во траншей</th>
             <th>Команда</th>
             <th>Пояснение</th>
           </tr>
@@ -1266,13 +1271,20 @@
       <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено). ·
       <strong>Сумма (override)</strong> — оставь пустым/0, чтобы сумма бралась живьём из «портфель 500к»;
       заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку). ·
-      Транши с циклом «авто» — черновая раскладка: укажи «Дату закрытия» по активу в таблице выше,
-      и здесь появятся 3 транша (-10%/-20%/-30% от исторического пика, сумма поровну округлена до
-      сотен $, дедлайны на 1/3 · 2/3 · всём сроке до даты закрытия) — правь любое поле как обычную
-      ручную строку, смена даты закрытия пересоберёт авто-транши заново.
+      Транши с циклом «авто» — черновая раскладка: укажи «Дату закрытия» (и, если нужно, «Кол-во
+      траншей» — по умолчанию 3) по активу в таблице выше, и здесь появятся транши (-10%/-20%/-30%/...
+      от исторического пика с шагом -10% на транш, сумма поровну округлена до сотен $, дедлайны
+      равномерно до даты закрытия) — правь любое поле как обычную ручную строку, смена даты или
+      количества траншей пересоберёт авто-транши заново.
     </p>
     <div class="table-scroll">
       <table class="ledger-table rp-table">
+        <colgroup>
+          <col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:6%">
+          <col style="width:7%"><col style="width:6%"><col style="width:8%"><col style="width:9%">
+          <col style="width:9%"><col style="width:9%"><col style="width:7%"><col style="width:7%">
+          <col style="width:7%"><col style="width:4%">
+        </colgroup>
         <thead>
           <tr>
             <th>Актив</th>
@@ -1322,6 +1334,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=41"></script>
+<script src="app.js?v=42"></script>
 </body>
 </html>
