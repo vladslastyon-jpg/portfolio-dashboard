@@ -3192,16 +3192,11 @@ const RP_STORAGE_KEY = "rebalancePlan_v1";
 
 // Единственный реально известный транш из обсуждения плана (SMH, транш 2) —
 // стартовый пример; остальные транши пользователь добавляет сам кнопкой
-// "+ добавить транш" (портфель "500к" в Google Sheets не хранит триггеры/
-// дедлайны транша, только план/факт по активам — взять их оттуда напрямую нельзя).
+// "+ добавить транш" или кнопкой "Сгенерировать 3 транша" (портфель "500к" в
+// Google Sheets не хранит триггеры/дедлайны транша, только план/факт по
+// активам — взять их оттуда напрямую нельзя, только сумму через getPlanDeltas()).
 // side: "buy" (докупка на просадке) | "sell" (продажа — напр. к дедлайну).
-let rpTranches = [
-  {
-    id: "rp-seed-smh-2", asset: "SMH", side: "buy", tranche: 2, triggerPct: -25, triggerPrice: 88.4,
-    peakRef: 117.92, amountPlan: 12819, deadline: "2026-09-03", status: "pending",
-    execDate: "", execPrice: "", execAmount: "", cycle: "2026-Q3-1",
-  },
-];
+let rpTranches = [];
 let rpWorkerUrl = "";
 
 function rpUid() {
@@ -3239,6 +3234,16 @@ function rpLoadState() {
       triggerPrice: "", peakRef: "", amountPlan: "", deadline: "2026-12-31", status: "pending",
       execDate: "", execPrice: "", execAmount: "", cycle: "2026-divest",
     });
+    rpSaveState();
+  }
+
+  // Одноразовая миграция: старый вручную зафиксированный SMH-транш (сумма
+  // 12819 — фиксированный override) больше не нужен, он покрывал только
+  // часть текущей живой суммы ($42,793 из "портфель 500к"). Убираем его,
+  // чтобы SMH попал в тот же механизм автогенерации ("Сгенерировать 3
+  // транша"), что и остальные активы без своего транша — единообразно.
+  if (rpTranches.some((t) => t.id === "rp-seed-smh-2")) {
+    rpTranches = rpTranches.filter((t) => t.id !== "rp-seed-smh-2");
     rpSaveState();
   }
 }
@@ -3454,9 +3459,22 @@ function rpAddTranche() {
 // триггерами -10% / -20% / -30% от исторического пика (Asset_History) —
 // вместо того чтобы просить пользователя считать это руками. Пик берётся не
 // ниже текущей цены (иначе триггер получился бы уже пройденным задним числом).
-// Дедлайн намеренно не ставится — это черновая раскладка, пользователь может
-// подправить любое поле или добавить дедлайн сам.
+// Суммы округляются до сотен долларов (реальный размер сделки, не копейки
+// живой дельты). Дедлайны — гибрид с триггером, чтобы транш не ждал просадки
+// бесконечно: 3/6/9 месяцев от сегодня (мельче просадка — ближе дедлайн).
 const RP_AUTO_TRIGGER_LEVELS = [-10, -20, -30];
+const RP_AUTO_DEADLINE_MONTHS = [3, 6, 9];
+
+function rpRoundToHundred(v) {
+  return Math.round(v / 100) * 100;
+}
+
+function rpAddMonths(dateISO, months) {
+  const d = new Date(dateISO + "T00:00:00");
+  d.setMonth(d.getMonth() + months);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 function rpGenerateTranches(asset) {
   const deltas = rpGetPlanDeltas();
@@ -3471,17 +3489,19 @@ function rpGenerateTranches(asset) {
   const historicalPeak = peaks[asset] || 0;
   const peak = Math.max(historicalPeak, price) || price;
   const existingCount = rpTranches.filter((t) => t.asset === asset).length;
+  const today = rpTodayISO();
 
   const n = RP_AUTO_TRIGGER_LEVELS.length;
-  const base = Math.floor(totalAmount / n);
-  const amounts = RP_AUTO_TRIGGER_LEVELS.map((_, i) => (i === n - 1 ? totalAmount - base * (n - 1) : base));
+  const rawBase = Math.floor(totalAmount / n);
+  const rawAmounts = RP_AUTO_TRIGGER_LEVELS.map((_, i) => (i === n - 1 ? totalAmount - rawBase * (n - 1) : rawBase));
+  const amounts = rawAmounts.map((a) => Math.max(100, rpRoundToHundred(a)));
 
   RP_AUTO_TRIGGER_LEVELS.forEach((pct, i) => {
     const triggerPrice = peak ? Math.round(peak * (1 + pct / 100) * 100) / 100 : "";
     rpTranches.push({
       id: rpUid(), asset, side, tranche: existingCount + i + 1, triggerPct: pct, triggerPrice,
-      peakRef: peak || "", amountPlan: amounts[i], deadline: "", status: "pending",
-      execDate: "", execPrice: "", execAmount: "", cycle: "авто",
+      peakRef: peak || "", amountPlan: amounts[i], deadline: rpAddMonths(today, RP_AUTO_DEADLINE_MONTHS[i]),
+      status: "pending", execDate: "", execPrice: "", execAmount: "", cycle: "авто",
     });
   });
   rpRenderAll();
