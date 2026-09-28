@@ -335,6 +335,7 @@ async function fetchAll() {
     computeAll();
     renderAll();
     if (typeof renderOverallTab === "function") renderOverallTab();
+    if (typeof rpRenderAll === "function") rpRenderAll();
 
     document.getElementById("app").hidden = false;
     const now = new Date();
@@ -1109,10 +1110,12 @@ function computeEurUsd() {
     const r = rows[i];
     if (r && r[2] !== undefined && r[2] !== "" && !isNaN(parseNum(r[2]))) {
       eurUsdRate = parseNum(r[2]);
+      derived.eurUsd = eurUsdRate;
       return;
     }
   }
   eurUsdRate = null;
+  derived.eurUsd = null;
 }
 
 function computeKPI() {
@@ -1486,6 +1489,7 @@ function renderAll() {
   renderTransactions();
   renderAssetCheckboxes();
   renderAssetsReturnChart();
+  renderYearQuarterGrid();
   renderMonthGrid();
   renderTickerDetailTable();
   if (hasPlan) renderPlanActual();
@@ -1569,6 +1573,51 @@ function renderAssetsReturnChart() {
         tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${item.parsed.y === null ? "—" : item.parsed.y.toFixed(1) + "%"}` } },
       },
     },
+  });
+}
+
+/**
+ * Доходность по годам и кварталам — из тех же помесячных данных Portfolio_Monthly,
+ * что и таблица по месяцам. $ = сумма месяцев (как в Portfolio_Summary),
+ * % = сцепленная доходность месяцев: (1+r1)(1+r2)...−1.
+ */
+function renderYearQuarterGrid() {
+  const head = document.getElementById(pid("yearGridHead"));
+  head.innerHTML = `<tr><th>Год</th><th>Год итого</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th></tr>`;
+
+  const years = Object.keys(derived.monthGrid || {}).map(Number).sort();
+  const body = document.getElementById(pid("yearGridBody"));
+  body.innerHTML = "";
+  if (!years.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-row">Нет данных</td></tr>`;
+    return;
+  }
+
+  const aggregate = (y, months) => {
+    let abs = 0;
+    let growth = 1;
+    let any = false;
+    months.forEach((m) => {
+      const entry = derived.monthGrid[y][m];
+      if (!entry || entry.profitPct === null) return;
+      any = true;
+      abs += entry.profitAbs || 0;
+      growth *= 1 + entry.profitPct;
+    });
+    return any ? { abs, pct: growth - 1 } : null;
+  };
+  const cell = (agg) => {
+    if (!agg) return `<td class="empty-cell">·</td>`;
+    return `<td class="${signClass(agg.pct)}">${fmtMoney(agg.abs)} (${(agg.pct * 100).toFixed(1)}%)</td>`;
+  };
+
+  years.forEach((y) => {
+    const tr = document.createElement("tr");
+    let html = `<td class="year-cell">${y}</td>`;
+    html += cell(aggregate(y, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]));
+    for (let q = 0; q < 4; q++) html += cell(aggregate(y, [q * 3, q * 3 + 1, q * 3 + 2]));
+    tr.innerHTML = html;
+    body.appendChild(tr);
   });
 }
 
@@ -1774,6 +1823,19 @@ function getCashValue() {
   return allocCash ? allocCash.value : 0;
 }
 
+function getPlanCashShare() {
+  const pa = derived.planActual;
+  if (!pa || !pa.groups.length) return 0.05;
+  let cashPlan = null;
+  let planSum = 0;
+  pa.groups.forEach((g) => g.tickers.forEach((t) => {
+    planSum += t.planUSD || 0;
+    if (t.ticker === "Cash") cashPlan = t.planUSD || 0;
+  }));
+  if (cashPlan === null || !planSum) return 0.05;
+  return cashPlan / (pa.targetTotal || planSum);
+}
+
 function renderKPI() {
   const k = derived.kpi;
   if (!k) return;
@@ -1787,7 +1849,9 @@ function renderKPI() {
   pctEl.className = "kpi-value " + signClass(k.profitPct);
 
   const cashValue = getCashValue();
-  const cashTargetReserve = k.marketValue * 0.05;
+  // Целевой кэш — доля Cash в плане «портфель 500к» (пропорции задаются в Google);
+  // 5% — только запасной вариант, если плана нет.
+  const cashTargetReserve = k.marketValue * getPlanCashShare();
   const cashDelta = cashValue - cashTargetReserve;
   const cashEl = document.getElementById(pid("kpiCashDelta"));
   cashEl.textContent = fmtMoney(cashDelta);
@@ -2118,39 +2182,29 @@ return {
     (derived.actualPortfolio?.rows || []).forEach((r) => { if (r.price !== null && r.price !== undefined) map[r.ticker] = r.price; });
     return map;
   },
-  // "Сколько докупить" по тикеру — план минус факт, живьём из листа "портфель 500к"
-  // (для вкладки "План докупок": сумма к покупке берётся отсюда, а не вписывается
-  // руками — таблица траншей задаёт только "когда", не "сколько").
-  getPlanDeltas: () => {
-    const map = {};
+  // План/факт по каждому тикеру (включая Cash) из "портфель 500к" — для вкладки
+  // "План докупок": целевые доли = план $ тикера / сумма планов.
+  getPlanTickers: () => {
+    const out = [];
     (derived.planActual?.groups || []).forEach((g) => {
-      g.tickers.forEach((t) => { if (t.deltaUSD !== null && t.deltaUSD !== undefined) map[t.ticker] = t.deltaUSD; });
+      g.tickers.forEach((t) => out.push({ ticker: t.ticker, group: g.group, factUSD: t.factUSD || 0, planUSD: t.planUSD || 0 }));
+    });
+    return out;
+  },
+  getPlanTotals: () => ({
+    currentTotal: derived.planActual?.currentTotal ?? null,
+    targetTotal: derived.planActual?.targetTotal ?? null,
+  }),
+  // Курс EUR/USD этого портфеля — последняя строка Gold_History, колонка C.
+  getEurUsd: () => derived.eurUsd ?? null,
+  // Доходность тикеров за квартал/YTD/год из "Актуальный Портфель" — контекст для обзора Claude.
+  getTickerReturns: () => {
+    const map = {};
+    (derived.actualPortfolio?.rows || []).forEach((r) => {
+      map[r.ticker] = { d90: r.periods["90 days"], ytd: r.periods["YTD"], y1: r.periods["1Y"] };
     });
     return map;
   },
-  // Исторический пик (максимальная цена закрытия) по тикеру за весь доступный
-  // Asset_History — нужен для автогенерации триггерной сетки траншей (вкладка
-  // "План докупок"), чтобы не спрашивать у пользователя вручную "от какой цены
-  // считать просадку".
-  getAssetPeaks: () => {
-    const rows = raw.assetHistory || [];
-    const peaks = {};
-    if (rows.length < 2) return peaks;
-    const header = rows[0];
-    header.forEach((ticker, colIdx) => {
-      if (!ticker || colIdx === 0) return;
-      let max = null;
-      for (let i = 1; i < rows.length; i++) {
-        const v = parseNum(rows[i][colIdx]);
-        if (v && (max === null || v > max)) max = v;
-      }
-      if (max !== null) peaks[ticker] = max;
-    });
-    return peaks;
-  },
-  // Текущий свободный кэш (для вкладки "План докупок" — сколько денег не
-  // хватает на весь план докупок: сумма нужного минус то, что уже есть в кэше).
-  getCashOnHand: () => getCashValue(),
 };
 }
 
@@ -2203,11 +2257,11 @@ let activeTab = "portfolio";
 
 /* -------------------------- Вкладка "Общий": 4 цели-банки + общий прогресс -------------------------- */
 
-const GOALS_MANUAL_STORAGE_KEY = "goals_manual_facts_v1";
+const FREE_CASH_STORAGE_KEY = "free_cash_rows_v1";
 
 // getAutoFact — факт из системы (Google Sheets), задан только у Пенсии и Обучения.
-// Ручной ввод (localStorage) для них — ДОБАВКА поверх системного факта, а не замена;
-// у Квартиры/Подушки системного факта нет, там ручной ввод — единственный факт (как раньше).
+// Второй слой банки — деньги из таблицы «Свободные деньги», распределённые по
+// целям в порядке FREE_CASH_ORDER (см. allocateFreeCash).
 const GOAL_DEFS = [
   { id: "pension", title: "Пенсионный портфель", plan: 500000, symbol: "$", currency: "USD", getAutoFact: () => mainProfile.getGoalSummary().total },
   { id: "education", title: "Обучение детей", plan: 100000, symbol: "€", currency: "EUR", getAutoFact: () => alenaProfile.getGoalSummary().total },
@@ -2215,23 +2269,60 @@ const GOAL_DEFS = [
   { id: "cushion", title: "Подушка", plan: 20000, symbol: "€", currency: "EUR" },
 ];
 
-// Общий план всегда переводится в евро (используем ту же ставку eurUsdRate,
-// что и остальной сайт) — так все 4 цели складываются в одной валюте, честно.
-function toGoalEUR(value, currency) {
-  if (currency === "EUR") return value;
-  return convertCurrency(value, "EUR"); // convertCurrency ждёт значение в USD
+// Очередь распределения свободных денег: каждая цель добирается до плана,
+// остаток идёт дальше; на кого не хватило — заполняется частично.
+const FREE_CASH_ORDER = ["pension", "cushion", "education", "apartment"];
+
+// Курс для вкладки — из основной таблицы (Gold_History, колонка C, последняя строка).
+function getGoalEurUsd() {
+  return mainProfile.getEurUsd() || null;
 }
 
-function loadManualGoalFacts() {
+function toGoalEUR(value, currency) {
+  if (currency === "EUR") return value;
+  const rate = getGoalEurUsd();
+  return rate ? value / rate : value;
+}
+
+function toUSD(value, currency) {
+  if (currency === "USD") return value;
+  const rate = getGoalEurUsd();
+  return rate ? value * rate : null;
+}
+
+function loadFreeCashRows() {
   try {
-    const raw = localStorage.getItem(GOALS_MANUAL_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) { return {}; } // повреждённые данные в localStorage — просто игнорируем, останутся дефолты
+    const raw = localStorage.getItem(FREE_CASH_STORAGE_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) { return []; } // повреждённые данные в localStorage — начинаем с пустой таблицы
 }
-function saveManualGoalFacts(data) {
-  localStorage.setItem(GOALS_MANUAL_STORAGE_KEY, JSON.stringify(data));
+function saveFreeCashRows() {
+  try { localStorage.setItem(FREE_CASH_STORAGE_KEY, JSON.stringify(freeCashRows)); } catch (e) { /* без сохранения */ }
 }
-let manualGoalFacts = loadManualGoalFacts();
+let freeCashRows = loadFreeCashRows();
+
+function getGoalAutoFact(g) {
+  const raw = g.getAutoFact ? g.getAutoFact() : null;
+  return (raw === null || raw === undefined || isNaN(raw)) ? null : raw;
+}
+
+// Всё в USD: сумма таблицы → по очереди в недостающее до плана каждой цели.
+// Возвращает { totalUSD, byGoal: { id: сумма в валюте цели }, leftoverUSD }.
+function allocateFreeCash() {
+  const totalUSD = freeCashRows.reduce((s, r) => s + (toUSD(parseNum(r.amount), r.currency) || 0), 0);
+  let remaining = totalUSD;
+  const byGoal = {};
+  FREE_CASH_ORDER.forEach((id) => {
+    const g = GOAL_DEFS.find((d) => d.id === id);
+    const needGoalCcy = Math.max(0, g.plan - (getGoalAutoFact(g) || 0));
+    const needUSD = toUSD(needGoalCcy, g.currency) || 0;
+    const takeUSD = Math.min(remaining, needUSD);
+    remaining -= takeUSD;
+    byGoal[id] = g.currency === "USD" ? takeUSD : toGoalEUR(takeUSD, "USD");
+  });
+  return { totalUSD, byGoal, leftoverUSD: remaining };
+}
 
 function fmtGoalMoney(value, symbol) {
   if (value === null || value === undefined || isNaN(value)) return "—";
@@ -2248,12 +2339,16 @@ function renderOverallTab() {
   let sumAuto = 0;
   let sumManual = 0;
   let sumPlan = 0;
+  const allocation = allocateFreeCash();
+  renderFreeCashTable(allocation);
 
   GOAL_DEFS.forEach((g) => {
-    const rawAuto = g.getAutoFact ? g.getAutoFact() : null;
-    const auto = (rawAuto === null || rawAuto === undefined || isNaN(rawAuto)) ? 0 : rawAuto;
-    const savedManual = manualGoalFacts[g.id];
-    const manual = (savedManual === undefined || savedManual === null || isNaN(savedManual)) ? 0 : savedManual;
+    const rawAuto = getGoalAutoFact(g);
+    const auto = rawAuto === null ? 0 : rawAuto;
+    const manual = allocation.byGoal[g.id] || 0;
+
+    const cashEl = document.getElementById("goalCash_" + g.id);
+    if (cashEl) cashEl.textContent = fmtGoalMoney(manual, g.symbol);
 
     const planEl = document.getElementById("goalPlan_" + g.id);
     if (planEl) planEl.textContent = fmtGoalMoney(g.plan, g.symbol);
@@ -2332,18 +2427,64 @@ function setGoalOverallSegment(suffix, centerPct, amountEUR, pct) {
   if (pctEl) pctEl.textContent = fmtGoalPct(pct);
 }
 
-function wireOverallInputs() {
-  GOAL_DEFS.forEach((g) => {
-    const inp = document.getElementById("goalFactInput_" + g.id);
-    if (!inp) return;
-    const saved = manualGoalFacts[g.id];
-    inp.value = (saved === undefined || saved === null) ? "" : saved;
-    inp.addEventListener("input", () => {
-      const val = parseNum(inp.value);
-      manualGoalFacts[g.id] = isNaN(val) ? 0 : val;
-      saveManualGoalFacts(manualGoalFacts);
-      renderOverallTab();
+function fmtUSD0(value) {
+  return value === null || value === undefined || isNaN(value) ? "—" : fmtGoalMoney(value, "$");
+}
+
+// Таблица «Свободные деньги»: строки перерисовываются только при добавлении/
+// удалении/смене валюты; при вводе суммы обновляются лишь пересчитанные ячейки,
+// чтобы поле ввода не теряло фокус.
+function renderFreeCashTable(allocation) {
+  const body = document.getElementById("freeCashBody");
+  if (!body) return;
+  const rate = getGoalEurUsd();
+
+  if (body.childElementCount !== freeCashRows.length || body.dataset.stale === "1") {
+    body.dataset.stale = "0";
+    body.innerHTML = "";
+    freeCashRows.forEach((row, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="text" class="fc-source" value="${bgEsc(row.source || "")}" placeholder="например: Revolut EUR" /></td>
+        <td class="num"><input type="number" class="fc-amount" step="100" value="${row.amount ?? ""}" placeholder="0" /></td>
+        <td>
+          <select class="fc-currency">
+            <option value="EUR"${row.currency !== "USD" ? " selected" : ""}>EUR</option>
+            <option value="USD"${row.currency === "USD" ? " selected" : ""}>USD</option>
+          </select>
+        </td>
+        <td class="num fc-usd"></td>
+        <td><button class="budget-rm-btn" title="Удалить">✕</button></td>`;
+      tr.querySelector(".fc-source").addEventListener("input", (e) => { row.source = e.target.value; saveFreeCashRows(); });
+      tr.querySelector(".fc-amount").addEventListener("input", (e) => { row.amount = e.target.value === "" ? "" : parseNum(e.target.value); saveFreeCashRows(); renderOverallTab(); });
+      tr.querySelector(".fc-currency").addEventListener("change", (e) => { row.currency = e.target.value; saveFreeCashRows(); renderOverallTab(); });
+      tr.querySelector(".budget-rm-btn").addEventListener("click", () => {
+        freeCashRows.splice(i, 1);
+        body.dataset.stale = "1";
+        saveFreeCashRows();
+        renderOverallTab();
+      });
+      body.appendChild(tr);
     });
+  }
+
+  body.querySelectorAll("tr").forEach((tr, i) => {
+    const row = freeCashRows[i];
+    tr.querySelector(".fc-usd").textContent = fmtUSD0(toUSD(parseNum(row.amount), row.currency));
+  });
+
+  document.getElementById("freeCashTotal").textContent = fmtUSD0(allocation.totalUSD);
+  document.getElementById("freeCashLeftover").textContent = fmtUSD0(allocation.leftoverUSD);
+  document.getElementById("freeCashRate").textContent = rate
+    ? `Курс EUR/USD: ${rate.toFixed(4)} · из Google (Gold_History)`
+    : "Курс EUR/USD ещё не загружен — войдите через Google";
+}
+
+function wireOverallInputs() {
+  document.getElementById("freeCashAddBtn").addEventListener("click", () => {
+    freeCashRows.push({ source: "", amount: "", currency: "EUR" });
+    saveFreeCashRows();
+    renderOverallTab();
   });
 }
 
@@ -3191,26 +3332,24 @@ function wirePensionAlenaPersistence() {
 
 /* -------------------------- План докупок / ребалансировки (раздел "План докупок", localStorage) -------------------------- */
 
-const RP_STORAGE_KEY = "rebalancePlan_v1";
+// Два режима на актив:
+//  • НАБОР — портфель ещё не добран до цели «портфель 500к», а актив не достиг
+//    своего плана: разовое внесение раскладывается по недостающим суммам.
+//  • КОНТРОЛЬ — актив набран (или портфель уже на цели): коридор «5/25» вокруг
+//    целевой суммы; вышел за коридор → сделка до целевой суммы, иначе держим.
+// Пропорции (включая Cash) — только из Google («портфель 500к», колонка плана $);
+// здесь хранится лишь то, что вводится на вкладке: внесение, ручные суммы, дата обзора.
+const RP_STORAGE_KEY = "rebalancePlan_v2";
+const RP_OLD_STORAGE_KEY = "rebalancePlan_v1";
+const RP_BAND_ABS = 0.05; // 5% всего портфеля
+const RP_BAND_REL = 0.25; // 25% целевой суммы актива
+const RP_REVIEW_DAYS = 91;
+const RP_MIN_TRADE = 500; // сделки меньше — шум, не предлагаем (кроме планового выхода)
 
-// Единственный реально известный транш из обсуждения плана (SMH, транш 2) —
-// стартовый пример; остальные транши пользователь добавляет сам кнопкой
-// "+ добавить транш" или кнопкой "Сгенерировать 3 транша" (портфель "500к" в
-// Google Sheets не хранит триггеры/дедлайны транша, только план/факт по
-// активам — взять их оттуда напрямую нельзя, только сумму через getPlanDeltas()).
-// side: "buy" (докупка на просадке) | "sell" (продажа — напр. к дедлайну).
-let rpTranches = [];
 let rpWorkerUrl = "";
-// Дата "закрытия операции" по каждому активу — пользователь вводит её в
-// таблице "Активы — что делать сейчас"; на основе неё генерируются/пересобираются
-// транши в таблице ниже (см. rpGenerateTranches).
-let rpCloseDates = {};
-// Количество траншей на актив (по умолчанию 3) — тоже задаётся в той же таблице.
-let rpTrancheCounts = {};
-
-function rpUid() {
-  return `rp${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-}
+let rpDeposit = null;  // разовое внесение, $; null — по умолчанию «цель минус текущий объём»
+let rpOverrides = {};  // ручные суммы по тикеру: + купить, − продать
+let rpLastReview = ""; // дата последнего квартального обзора (ISO)
 
 function rpTodayISO() {
   const d = new Date();
@@ -3219,9 +3358,11 @@ function rpTodayISO() {
 }
 
 function rpSaveState() {
-  localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({
-    tranches: rpTranches, workerUrl: rpWorkerUrl, closeDates: rpCloseDates, trancheCounts: rpTrancheCounts,
-  }));
+  try {
+    localStorage.setItem(RP_STORAGE_KEY, JSON.stringify({
+      workerUrl: rpWorkerUrl, deposit: rpDeposit, overrides: rpOverrides, lastReview: rpLastReview,
+    }));
+  } catch (e) { /* localStorage недоступен — работаем без сохранения */ }
 }
 
 function rpLoadState() {
@@ -3229,36 +3370,16 @@ function rpLoadState() {
     const raw = localStorage.getItem(RP_STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      if (Array.isArray(data.tranches)) rpTranches = data.tranches;
-      if (data.trancheCounts && typeof data.trancheCounts === "object") rpTrancheCounts = data.trancheCounts;
       if (typeof data.workerUrl === "string") rpWorkerUrl = data.workerUrl;
-      if (data.closeDates && typeof data.closeDates === "object") rpCloseDates = data.closeDates;
+      if (typeof data.deposit === "number") rpDeposit = data.deposit;
+      if (data.overrides && typeof data.overrides === "object") rpOverrides = data.overrides;
+      if (typeof data.lastReview === "string") rpLastReview = data.lastReview;
+    } else {
+      // Переход со старой сетки траншей: переносим только URL воркера.
+      const old = JSON.parse(localStorage.getItem(RP_OLD_STORAGE_KEY) || "{}");
+      if (typeof old.workerUrl === "string") rpWorkerUrl = old.workerUrl;
     }
   } catch (e) { /* повреждённые данные в localStorage — просто игнорируем, останутся дефолты */ }
-
-  // Одноразовая миграция: план "избавиться от GOOGL к концу года" — сумма уже
-  // считается сама (план по GOOGL в "портфель 500к" обнулён, факт минус план
-  // даёт нужную сумму продажи), здесь нужен только дедлайн. Добавляется
-  // автоматически при первом заходе, если такого транша ещё нет — руками
-  // вводить не нужно.
-  if (!rpTranches.some((t) => t.asset === "GOOGL")) {
-    rpTranches.push({
-      id: "rp-seed-googl-sell", asset: "GOOGL", side: "sell", tranche: 1, triggerPct: "",
-      triggerPrice: "", peakRef: "", amountPlan: "", deadline: "2026-12-31", status: "pending",
-      execDate: "", execPrice: "", execAmount: "", cycle: "2026-divest",
-    });
-    rpSaveState();
-  }
-
-  // Одноразовая миграция: старый вручную зафиксированный SMH-транш (сумма
-  // 12819 — фиксированный override) больше не нужен, он покрывал только
-  // часть текущей живой суммы ($42,793 из "портфель 500к"). Убираем его,
-  // чтобы SMH попал в тот же механизм автогенерации ("Сгенерировать 3
-  // транша"), что и остальные активы без своего транша — единообразно.
-  if (rpTranches.some((t) => t.id === "rp-seed-smh-2")) {
-    rpTranches = rpTranches.filter((t) => t.id !== "rp-seed-smh-2");
-    rpSaveState();
-  }
 }
 
 function rpGetAssetPrices() {
@@ -3267,280 +3388,8 @@ function rpGetAssetPrices() {
   return prices;
 }
 
-function rpGetAssetPeaks() {
-  const peaks = {};
-  if (mainProfile.getAssetPeaks) Object.assign(peaks, mainProfile.getAssetPeaks());
-  return peaks;
-}
-
-function rpGetCashOnHand() {
-  return mainProfile.getCashOnHand ? mainProfile.getCashOnHand() : null;
-}
-
-// "Сколько докупить/продать" по тикеру — живьём из "портфель 500к" (план минус
-// факт). Источник истины по сумме — Sheet, не вручную вписанное "Сумма плана"
-// в таблице траншей (та задаёт только тайминг — триггер/дедлайн).
-function rpGetPlanDeltas() {
-  const deltas = {};
-  if (mainProfile.getPlanDeltas) Object.assign(deltas, mainProfile.getPlanDeltas());
-  return deltas;
-}
-
-// Сумма, которую показывать/рекомендовать для конкретного транша: если в
-// строке транша вручную указана "Сумма плана" (override) — используем её;
-// иначе — живой остаток из Sheet ("план минус факт" по этому активу).
-// Возвращается модуль суммы — знак (докупить/продать) уже несёт "Команда"/"Тип",
-// дублировать его в сумме не нужно (для "продать" в Sheet дельта отрицательна —
-// факт больше плана, т.е. актив в избытке).
-function rpTrancheAmount(t, deltas) {
-  if (t.amountPlan !== null && t.amountPlan !== undefined && t.amountPlan !== "" && t.amountPlan !== 0) return Math.abs(t.amountPlan);
-  const delta = deltas[t.asset];
-  return delta !== null && delta !== undefined ? Math.abs(delta) : null;
-}
-
-// Логика триггера — та же, что зашита в системный промпт Worker'а (раздел 4
-// ТЗ): срабатывает по цене ИЛИ по дедлайну (гибрид — не ждать бесконечно).
-// Для покупки (side="buy") триггер — цена УПАЛА до trigger_price или ниже
-// (просадка от пика). Для продажи (side="sell") — цена ВЫРОСЛА до trigger_price
-// или выше (если задана); в любом случае дедлайн срабатывает независимо от
-// цены — это покрывает случай "избавиться от актива к такому-то сроку".
-// Только для статуса "pending".
-function rpComputeLiveStatus(t, prices, todayISO) {
-  const price = prices[t.asset];
-  const hasTriggerPrice = t.triggerPrice !== null && t.triggerPrice !== undefined && t.triggerPrice !== "";
-  const hasPrice = price !== null && price !== undefined && hasTriggerPrice;
-  const triggeredByPrice = hasPrice && (t.side === "sell" ? price >= t.triggerPrice : price <= t.triggerPrice);
-  const triggeredByDeadline = !!t.deadline && todayISO >= t.deadline;
-  const verb = t.side === "sell" ? "ПРОДАТЬ" : "КУПИТЬ";
-  if (triggeredByPrice && triggeredByDeadline) return { label: `${verb} (цена+дедлайн)`, cls: "rp-badge--hit", triggered: true };
-  if (triggeredByPrice) return { label: `${verb} (цена)`, cls: "rp-badge--hit", triggered: true };
-  if (triggeredByDeadline) return { label: `${verb} (дедлайн)`, cls: "rp-badge--hit", triggered: true };
-  return { label: "ждать", cls: "rp-badge--wait", triggered: false };
-}
-
-function rpFmtUSD(value) {
-  if (value === null || value === undefined || value === "" || isNaN(value)) return "—";
-  const sign = value < 0 ? "-" : "";
-  return `${sign}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-}
-
-// KPI "сколько денег не хватает на весь план докупок": сумма всех положительных
-// дельт (нужно докупить) по "портфель 500к", кроме Cash, минус свободный кэш
-// сейчас. Продажи (отрицательные дельты вроде GOOGL) сюда не засчитываются как
-// источник денег — они ещё не исполнены, лучше не переоценивать запас заранее.
-function rpRenderMoneyKpi() {
-  const neededEl = document.getElementById("rpKpiNeeded");
-  const cashEl = document.getElementById("rpKpiCash");
-  const shortfallEl = document.getElementById("rpKpiShortfall");
-  if (!neededEl) return;
-
-  const deltas = rpGetPlanDeltas();
-  const needed = Object.entries(deltas)
-    .filter(([ticker, v]) => ticker !== "Cash" && v > 0)
-    .reduce((sum, [, v]) => sum + v, 0);
-  const cash = rpGetCashOnHand();
-  const hasData = Object.keys(deltas).length > 0 && cash !== null;
-
-  neededEl.textContent = hasData ? rpFmtUSD(needed) : "—";
-  cashEl.textContent = cash !== null ? rpFmtUSD(cash) : "—";
-  if (hasData) {
-    const shortfall = needed - cash;
-    shortfallEl.textContent = rpFmtUSD(shortfall);
-    shortfallEl.className = `kpi-value ${shortfall > 0 ? "is-negative" : "is-positive"}`;
-  } else {
-    shortfallEl.textContent = "—";
-    shortfallEl.className = "kpi-value";
-  }
-}
-
-// Сводка "актив → что делать сейчас": по одному ряду на каждый актив, у
-// которого либо есть настроенный транш, либо есть живая дельта план/факт из
-// "портфель 500к" (кроме Cash — это не торгуемый актив). Так активы без
-// вручную настроенного триггера (CSPX, SOXX и т.п.) тоже видны сразу — по
-// ним статус "см. рекомендацию": точный тайминг ещё не задан, но кнопка
-// "Обновить рекомендацию" всё равно даст совет от Claude по цене/времени,
-// используя эту же живую сумму.
-function rpRenderAssetsSummary() {
-  const body = document.getElementById("rpAssetsBody");
-  if (!body) return;
-  body.innerHTML = "";
-  const prices = rpGetAssetPrices();
-  const deltas = rpGetPlanDeltas();
-  const today = rpTodayISO();
-
-  const assets = [];
-  rpTranches.forEach((t) => { if (t.asset && !assets.includes(t.asset)) assets.push(t.asset); });
-  Object.keys(deltas).forEach((ticker) => {
-    if (ticker !== "Cash" && !assets.includes(ticker)) assets.push(ticker);
-  });
-
-  if (!assets.length) {
-    body.innerHTML = '<tr><td colspan="7" class="empty-row">Нет ни настроенных траншей, ни данных плана/факта — добавь транш ниже или проверь «портфель 500к».</td></tr>';
-    return;
-  }
-
-  assets.forEach((asset) => {
-    const pending = rpTranches.filter((t) => t.asset === asset && t.status === "pending");
-    const price = prices[asset];
-    const delta = deltas[asset];
-    const hasConfiguredTranche = rpTranches.some((t) => t.asset === asset);
-    const closeDate = rpCloseDates[asset] || "";
-    const triggered = pending
-      .map((t) => ({ t, live: rpComputeLiveStatus(t, prices, today) }))
-      .filter((x) => x.live.triggered);
-
-    let command, cls, explain, amountText;
-    if (!pending.length && !hasConfiguredTranche) {
-      command = "СМ. РЕКОМЕНДАЦИЮ"; cls = "rp-cmd--hold";
-      explain = closeDate
-        ? "дата закрытия указана, но транши ещё не сгенерированы — измени дату ещё раз, чтобы пересобрать"
-        : "укажи дату закрытия операции слева → транши ниже соберутся автоматически, или жми «Обновить рекомендацию» за советом";
-      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
-    } else if (!pending.length) {
-      command = "—"; cls = "rp-cmd--hold";
-      explain = "нет ожидающих траншей по этому активу";
-      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
-    } else if (triggered.length) {
-      const verbs = [...new Set(triggered.map((x) => (x.t.side === "sell" ? "ПРОДАВАТЬ" : "ПОКУПАТЬ")))];
-      command = verbs.join(" / "); cls = "rp-cmd--act";
-      explain = triggered.map((x) => `транш №${x.t.tranche ?? "?"}: ${x.live.label.toLowerCase()}`).join("; ");
-      const amounts = triggered.map((x) => rpTrancheAmount(x.t, deltas)).filter((a) => a !== null && a !== undefined);
-      amountText = amounts.length ? amounts.map(rpFmtUSD).join(" + ") : "—";
-    } else {
-      command = "ДЕРЖАТЬ"; cls = "rp-cmd--hold";
-      const nearest = pending[0];
-      explain = `ближайший транш №${nearest.tranche ?? "?"}: триггер ${nearest.triggerPrice || "—"}${nearest.deadline ? `, дедлайн ${nearest.deadline}` : ""}`;
-      amountText = delta !== null && delta !== undefined ? rpFmtUSD(delta) : "—";
-    }
-
-    const trancheCount = rpTrancheCounts[asset] || RP_DEFAULT_TRANCHE_COUNT;
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${bgEsc(asset)}</td>
-      <td class="num">${amountText}</td>
-      <td class="num">${price !== null && price !== undefined ? price : "—"}</td>
-      <td><input type="date" class="rp-close-date-input" value="${closeDate}" /></td>
-      <td class="num"><input type="number" class="rp-tranche-count-input" min="1" max="12" step="1" value="${trancheCount}" /></td>
-      <td><span class="rp-cmd ${cls}">${command}</span></td>
-      <td class="rp-explain">${bgEsc(explain)}</td>`;
-    tr.querySelector(".rp-close-date-input").addEventListener("change", (e) => {
-      const val = e.target.value;
-      if (val) { rpCloseDates[asset] = val; rpGenerateTranches(asset); }
-      else { delete rpCloseDates[asset]; rpRenderAll(); rpSaveState(); }
-    });
-    tr.querySelector(".rp-tranche-count-input").addEventListener("change", (e) => {
-      const n = Math.max(1, Math.round(parseNum(e.target.value)) || RP_DEFAULT_TRANCHE_COUNT);
-      rpTrancheCounts[asset] = n;
-      if (rpCloseDates[asset]) rpGenerateTranches(asset);
-      else { rpRenderAll(); rpSaveState(); }
-    });
-    body.appendChild(tr);
-  });
-}
-
-function rpRenderTable() {
-  const body = document.getElementById("rpTableBody");
-  if (!body) return;
-  body.innerHTML = "";
-  const prices = rpGetAssetPrices();
-  const today = rpTodayISO();
-
-  rpTranches.forEach((t, i) => {
-    const live = t.status === "pending" ? rpComputeLiveStatus(t, prices, today) : null;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input type="text" value="${bgEsc(t.asset || "")}" /></td>
-      <td>
-        <select class="rp-side-select">
-          <option value="buy"${t.side !== "sell" ? " selected" : ""}>покупка</option>
-          <option value="sell"${t.side === "sell" ? " selected" : ""}>продажа</option>
-        </select>
-      </td>
-      <td class="num"><input type="number" step="1" value="${t.tranche ?? ""}" /></td>
-      <td class="num"><input type="number" step="0.1" value="${t.triggerPct ?? ""}" /></td>
-      <td class="num"><input type="number" step="0.01" value="${t.triggerPrice ?? ""}" /></td>
-      <td class="num"><input type="number" step="0.01" value="${t.peakRef ?? ""}" /></td>
-      <td class="num"><input type="number" step="1" value="${t.amountPlan ?? ""}" /></td>
-      <td><input type="date" value="${t.deadline || ""}" /></td>
-      <td class="rp-status-cell">
-        <select class="rp-status-select">
-          <option value="pending"${t.status === "pending" ? " selected" : ""}>pending</option>
-          <option value="done"${t.status === "done" ? " selected" : ""}>done</option>
-          <option value="skipped"${t.status === "skipped" ? " selected" : ""}>skipped</option>
-        </select>
-        ${live ? `<span class="rp-badge ${live.cls}">${live.label}</span>` : ""}
-      </td>
-      <td><input type="date" value="${t.execDate || ""}" /></td>
-      <td class="num"><input type="number" step="0.01" value="${t.execPrice ?? ""}" /></td>
-      <td class="num"><input type="number" step="1" value="${t.execAmount ?? ""}" /></td>
-      <td><input type="text" value="${bgEsc(t.cycle || "")}" /></td>
-      <td><button class="budget-rm-btn" title="Удалить">✕</button></td>`;
-
-    const [assetEl, trancheEl, pctEl, priceEl, peakEl, amountEl, deadlineEl, execDateEl, execPriceEl, execAmountEl, cycleEl] =
-      tr.querySelectorAll("input");
-    const sideEl = tr.querySelector(".rp-side-select");
-    const statusEl = tr.querySelector(".rp-status-select");
-
-    assetEl.addEventListener("change", () => { t.asset = assetEl.value.trim().toUpperCase(); rpRenderAll(); rpSaveState(); });
-    sideEl.addEventListener("change", () => { t.side = sideEl.value; rpRenderAll(); rpSaveState(); });
-    trancheEl.addEventListener("change", () => { t.tranche = parseNum(trancheEl.value); rpRenderAssetsSummary(); rpSaveState(); });
-    pctEl.addEventListener("change", () => { t.triggerPct = parseNum(pctEl.value); rpSaveState(); });
-    priceEl.addEventListener("change", () => { t.triggerPrice = parseNum(priceEl.value); rpRenderAll(); rpSaveState(); });
-    peakEl.addEventListener("change", () => { t.peakRef = parseNum(peakEl.value); rpSaveState(); });
-    amountEl.addEventListener("change", () => { t.amountPlan = parseNum(amountEl.value); rpSaveState(); });
-    deadlineEl.addEventListener("change", () => { t.deadline = deadlineEl.value; rpRenderAll(); rpSaveState(); });
-    execDateEl.addEventListener("change", () => { t.execDate = execDateEl.value; rpSaveState(); });
-    execPriceEl.addEventListener("change", () => { t.execPrice = parseNum(execPriceEl.value); rpSaveState(); });
-    execAmountEl.addEventListener("change", () => { t.execAmount = parseNum(execAmountEl.value); rpSaveState(); });
-    cycleEl.addEventListener("input", () => { t.cycle = cycleEl.value; rpSaveState(); });
-    statusEl.addEventListener("change", () => { t.status = statusEl.value; rpRenderAll(); rpSaveState(); });
-    tr.querySelector(".budget-rm-btn").addEventListener("click", () => { rpTranches.splice(i, 1); rpRenderAll(); rpSaveState(); });
-
-    body.appendChild(tr);
-  });
-}
-
-function rpRenderAll() {
-  rpRenderMoneyKpi();
-  rpRenderAssetsSummary();
-  rpRenderTable();
-}
-
-function rpAddTranche() {
-  rpTranches.push({
-    id: rpUid(), asset: "", side: "buy", tranche: rpTranches.length + 1, triggerPct: -20, triggerPrice: "",
-    peakRef: "", amountPlan: "", deadline: "", status: "pending",
-    execDate: "", execPrice: "", execAmount: "", cycle: "",
-  });
-  rpRenderAll();
-  rpSaveState();
-}
-
-// Разбить всю сумму "нужно докупить/продать" по активу на N траншей (по
-// умолчанию 3, но настраивается в таблице "Активы — что делать") с триггерами
-// -10%, -20%, -30%, ... (шаг -10% на транш) от исторического пика (Asset_History) —
-// вместо того чтобы просить пользователя считать это руками. Пик берётся не
-// ниже текущей цены (иначе триггер получился бы уже пройденным задним числом).
-// Суммы округляются до сотен долларов (реальный размер сделки, не копейки
-// живой дельты). Дедлайны — гибрид с триггером, чтобы транш не ждал просадки
-// бесконечно: распределяются равномерно между сегодня и "датой закрытия
-// операции" (мельче просадка — ближе дедлайн, глубже — ближе к самой дате
-// закрытия). Перегенерирует (не копит дубли): старые "авто"-транши по этому
-// активу удаляются перед созданием новых — вручную добавленные/отредактированные
-// (с другим значением "Цикл") не трогает.
-const RP_DEFAULT_TRANCHE_COUNT = 3;
-const RP_AUTO_TRIGGER_STEP_PCT = -10;
-
-function rpRoundToHundred(v) {
+function rpRound100(v) {
   return Math.round(v / 100) * 100;
-}
-
-function rpAddDays(dateISO, days) {
-  const d = new Date(dateISO + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function rpDaysBetween(fromISO, toISO) {
@@ -3549,48 +3398,186 @@ function rpDaysBetween(fromISO, toISO) {
   return Math.round((to.getTime() - from.getTime()) / 86400000);
 }
 
-function rpGenerateTranches(asset) {
-  const closeDate = rpCloseDates[asset];
-  if (!closeDate) return;
-
-  const deltas = rpGetPlanDeltas();
+// Целевая сумма актива = его доля в плане × размер портфеля после внесения.
+// Пока портфель не на цели, это ровно план $ из «портфель 500к»; после — доли
+// масштабируются вместе с портфелем. Коридор = меньшее из 5% портфеля и 25%
+// целевой суммы (у актива с планом 0 коридор 0 → плановый выход целиком).
+function rpComputePlan() {
+  const tickers = mainProfile.getPlanTickers ? mainProfile.getPlanTickers() : [];
+  if (!tickers.length) return null;
   const prices = rpGetAssetPrices();
-  const peaks = rpGetAssetPeaks();
-  const delta = deltas[asset];
-  if (delta === null || delta === undefined || delta === 0) return;
+  const totals = mainProfile.getPlanTotals();
+  const planSum = tickers.reduce((s, t) => s + Math.max(0, t.planUSD), 0);
+  const targetTotal = totals.targetTotal || planSum;
+  const currentTotal = totals.currentTotal ?? tickers.reduce((s, t) => s + t.factUSD, 0);
+  if (!planSum || !targetTotal) return null;
 
-  const side = delta < 0 ? "sell" : "buy";
-  const totalAmount = Math.abs(delta);
-  const price = prices[asset] || 0;
-  const historicalPeak = peaks[asset] || 0;
-  const peak = Math.max(historicalPeak, price) || price;
-  const today = rpTodayISO();
+  const defaultDeposit = Math.max(0, rpRound100(targetTotal - currentTotal));
+  const deposit = rpDeposit ?? defaultDeposit;
+  const base = currentTotal + deposit;
+  const filling = currentTotal < targetTotal;
 
-  // Перегенерация: убираем прошлые авто-транши этого актива, чтобы не копить дубли.
-  rpTranches = rpTranches.filter((t) => !(t.asset === asset && t.cycle === "авто"));
-  const existingCount = rpTranches.filter((t) => t.asset === asset).length;
+  const cashRow = tickers.find((t) => t.ticker === "Cash");
+  const cashFact = cashRow ? cashRow.factUSD : 0;
+  const cashTarget = cashRow ? (Math.max(0, cashRow.planUSD) / planSum) * base : 0;
 
-  const n = Math.max(1, Math.round(rpTrancheCounts[asset] || RP_DEFAULT_TRANCHE_COUNT));
-  const levels = Array.from({ length: n }, (_, i) => RP_AUTO_TRIGGER_STEP_PCT * (i + 1));
-
-  const rawBase = Math.floor(totalAmount / n);
-  const rawAmounts = levels.map((_, i) => (i === n - 1 ? totalAmount - rawBase * (n - 1) : rawBase));
-  const amounts = rawAmounts.map((a) => Math.max(100, rpRoundToHundred(a)));
-
-  // Дедлайны равномерно на 1/n, 2/n, ..., n/n срока до даты закрытия.
-  const totalDays = Math.max(1, rpDaysBetween(today, closeDate));
-  const deadlineDays = levels.map((_, i) => Math.round((totalDays * (i + 1)) / n));
-
-  levels.forEach((pct, i) => {
-    const triggerPrice = peak ? Math.round(peak * (1 + pct / 100) * 100) / 100 : "";
-    rpTranches.push({
-      id: rpUid(), asset, side, tranche: existingCount + i + 1, triggerPct: pct, triggerPrice,
-      peakRef: peak || "", amountPlan: amounts[i], deadline: rpAddDays(today, deadlineDays[i]),
-      status: "pending", execDate: "", execPrice: "", execAmount: "", cycle: "авто",
-    });
+  const rows = tickers.filter((t) => t.ticker !== "Cash").map((t) => {
+    const share = Math.max(0, t.planUSD) / planSum;
+    const target = share * base;
+    const dev = t.factUSD - target;
+    const band = Math.min(RP_BAND_ABS * base, RP_BAND_REL * target);
+    const mode = filling && t.factUSD < t.planUSD ? "fill" : "control";
+    let rec = 0;
+    let status;
+    if (mode === "fill") {
+      rec = Math.max(0, target - t.factUSD);
+      status = "fill";
+    } else if (Math.abs(dev) > band) {
+      rec = -dev;
+      status = "out";
+    } else {
+      status = Math.abs(dev) > band * 0.7 ? "watch" : "ok";
+    }
+    return { ticker: t.ticker, group: t.group, price: prices[t.ticker] ?? null, fact: t.factUSD, plan: t.planUSD, share, target, dev, band, mode, status, rec };
   });
-  rpRenderAll();
-  rpSaveState();
+
+  // Деньги на покупки: внесение + кэш сверх целевого + продажи. Если набору
+  // не хватает — покупки режима НАБОР урезаются пропорционально.
+  const sells = rows.reduce((s, r) => s + (r.rec < 0 ? -r.rec : 0), 0);
+  const controlBuys = rows.reduce((s, r) => s + (r.mode === "control" && r.rec > 0 ? r.rec : 0), 0);
+  const fillBuys = rows.reduce((s, r) => s + (r.mode === "fill" ? r.rec : 0), 0);
+  const available = deposit + (cashFact - cashTarget) + sells - controlBuys;
+  const scale = fillBuys > 0 ? Math.max(0, Math.min(1, available / fillBuys)) : 1;
+
+  // Остаток сверх целевого кэша (например, выручка от продажи улетевшего актива)
+  // не копится, а идёт недовешенным активам в контроле — пропорционально их
+  // недобору до цели и не больше него.
+  const leftover = available - fillBuys * scale;
+  const underweight = rows.filter((r) => r.mode === "control" && r.rec === 0 && r.dev < 0);
+  const gap = underweight.reduce((s, r) => s - r.dev, 0);
+  if (leftover > 0 && gap > 0) {
+    underweight.forEach((r) => { r.rec = Math.min(-r.dev, (leftover * -r.dev) / gap); });
+  }
+
+  rows.forEach((r) => {
+    if (r.mode === "fill") r.rec *= scale;
+    r.rec = rpRound100(r.rec);
+    if (Math.abs(r.rec) < RP_MIN_TRADE && r.plan > 0) r.rec = 0;
+    const ov = rpOverrides[r.ticker];
+    r.override = typeof ov === "number" ? ov : null;
+    r.amount = r.override ?? r.rec;
+    r.qty = r.price ? r.amount / r.price : null;
+  });
+
+  const cashAfter = cashFact + deposit - rows.reduce((s, r) => s + r.amount, 0);
+  return { rows, deposit, defaultDeposit, currentTotal, targetTotal, base, filling, cashFact, cashTarget, cashAfter, scale };
+}
+
+function rpFmtUSD(value) {
+  if (value === null || value === undefined || value === "" || isNaN(value)) return "—";
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function rpRenderKpi(plan) {
+  const set = (id, text, cls) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = `kpi-value${cls ? " " + cls : ""}`;
+  };
+  if (!plan) {
+    ["rpKpiPortfolio", "rpKpiDeposit", "rpKpiCashAfter"].forEach((id) => set(id, "—"));
+    return;
+  }
+  set("rpKpiPortfolio", `${rpFmtUSD(plan.currentTotal)} / ${rpFmtUSD(plan.targetTotal)}`);
+  set("rpKpiDeposit", rpFmtUSD(plan.deposit));
+  set("rpKpiCashAfter", `${rpFmtUSD(plan.cashAfter)} (цель ${rpFmtUSD(plan.cashTarget)})`,
+    plan.cashAfter < 0 ? "is-negative" : "");
+
+  const depositInput = document.getElementById("rpDepositInput");
+  if (depositInput && document.activeElement !== depositInput) {
+    depositInput.value = rpDeposit ?? "";
+    depositInput.placeholder = String(plan.defaultDeposit);
+  }
+}
+
+function rpRenderReview() {
+  const el = document.getElementById("rpReviewStatus");
+  if (!el) return;
+  if (!rpLastReview) {
+    el.textContent = "Квартальный обзор ещё не отмечался.";
+    return;
+  }
+  const since = rpDaysBetween(rpLastReview, rpTodayISO());
+  const left = RP_REVIEW_DAYS - since;
+  el.textContent = `Последний обзор: ${rpLastReview} (${since} дн. назад) · ` +
+    (left > 0 ? `следующий через ${left} дн.` : "пора провести квартальный обзор");
+}
+
+const RP_MODE_LABEL = { fill: "набор", control: "контроль" };
+
+function rpExplain(r, plan) {
+  if (r.mode === "fill" && r.rec === 0) {
+    return `план почти набран: не хватает ${rpFmtUSD(r.target - r.fact)} — меньше минимальной сделки ${rpFmtUSD(RP_MIN_TRADE)}`;
+  }
+  if (r.mode === "fill") {
+    const cut = plan.scale < 1 ? ` · денег хватает на ${Math.round(plan.scale * 100)}% недобора` : "";
+    return `план ${rpFmtUSD(r.plan)}, не хватает ${rpFmtUSD(r.target - r.fact)}${cut}`;
+  }
+  if (r.plan <= 0) return "план 0 → плановый выход из актива";
+  const devText = `${r.dev >= 0 ? "+" : ""}${rpFmtUSD(r.dev)} при коридоре ±${rpFmtUSD(r.band)}`;
+  if (r.status === "out") return `вне коридора: ${devText} → сделка до цели`;
+  const refill = r.rec > 0 ? " · докупка из свободного кэша" : "";
+  if (r.status === "watch") return `у края коридора: ${devText}${refill}`;
+  return `в коридоре: ${devText}${refill}`;
+}
+
+function rpRenderAssets(plan) {
+  const body = document.getElementById("rpAssetsBody");
+  if (!body) return;
+  body.innerHTML = "";
+  if (!plan) {
+    body.innerHTML = '<tr><td colspan="10" class="empty-row">Нет данных плана/факта — войдите через Google или проверьте лист «портфель 500к».</td></tr>';
+    return;
+  }
+
+  plan.rows.forEach((r) => {
+    let command = "ДЕРЖАТЬ";
+    let cls = "rp-cmd--hold";
+    if (r.amount > 0) { command = "КУПИТЬ"; cls = "rp-cmd--act"; }
+    else if (r.amount < 0) { command = "ПРОДАТЬ"; cls = "rp-cmd--act"; }
+    else if (r.status === "watch") { command = "ВНИМАНИЕ"; cls = "rp-cmd--warn"; }
+
+    const factShare = plan.currentTotal ? r.fact / plan.currentTotal : 0;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${bgEsc(r.ticker)}</td>
+      <td>${RP_MODE_LABEL[r.mode]}</td>
+      <td class="num">${rpFmtUSD(r.fact)}</td>
+      <td class="num">${rpFmtUSD(r.target)}</td>
+      <td class="num">${(factShare * 100).toFixed(1)}% / ${(r.share * 100).toFixed(1)}%</td>
+      <td class="num">${rpFmtUSD(r.rec)}</td>
+      <td class="num"><input type="number" step="100" class="rp-override-input" placeholder="${r.rec}" value="${r.override ?? ""}" /></td>
+      <td class="num">${r.qty !== null && r.amount !== 0 ? r.qty.toFixed(1) : "—"}</td>
+      <td><span class="rp-cmd ${cls}">${command}</span></td>
+      <td class="rp-explain">${bgEsc(rpExplain(r, plan))}</td>`;
+    tr.querySelector(".rp-override-input").addEventListener("change", (e) => {
+      const val = e.target.value.trim();
+      if (val === "") delete rpOverrides[r.ticker];
+      else rpOverrides[r.ticker] = parseNum(val);
+      rpSaveState();
+      rpRenderAll();
+    });
+    body.appendChild(tr);
+  });
+}
+
+function rpRenderAll() {
+  const plan = rpComputePlan();
+  rpRenderKpi(plan);
+  rpRenderAssets(plan);
+  rpRenderReview();
 }
 
 async function rpRefreshRecommendation() {
@@ -3611,21 +3598,46 @@ async function rpRefreshRecommendation() {
   meta.textContent = "";
 
   try {
-    const planRows = rpTranches
-      .filter((t) => t.status === "pending")
-      .map((t) => ({
-        asset: t.asset, side: t.side || "buy", tranche: t.tranche, trigger_pct: t.triggerPct, trigger_price: t.triggerPrice,
-        peak_ref: t.peakRef, amount_plan: t.amountPlan, deadline: t.deadline, status: t.status,
-      }));
+    const plan = rpComputePlan();
+    if (!plan) throw new Error("нет данных плана/факта из Google — сначала войдите и дождитесь загрузки");
+    const returns = mainProfile.getTickerReturns ? mainProfile.getTickerReturns() : {};
+    const round = (v) => (v === null || v === undefined ? null : Math.round(v));
+    const pct = (v) => (v === null || v === undefined ? null : Math.round(v * 10000) / 100);
 
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        asset_prices: rpGetAssetPrices(),
-        plan_deltas: rpGetPlanDeltas(),
-        plan_rows: planRows,
         today: rpTodayISO(),
+        last_review: rpLastReview || null,
+        band_rule: `коридор = меньшее из ${RP_BAND_ABS * 100}% портфеля и ${RP_BAND_REL * 100}% целевой суммы актива`,
+        portfolio: {
+          current_total: round(plan.currentTotal),
+          target_total: round(plan.targetTotal),
+          deposit: round(plan.deposit),
+          total_after_deposit: round(plan.base),
+          cash_now: round(plan.cashFact),
+          cash_target: round(plan.cashTarget),
+          cash_after_trades: round(plan.cashAfter),
+        },
+        assets: plan.rows.map((r) => ({
+          asset: r.ticker,
+          group: r.group,
+          mode: r.mode,
+          status: r.status,
+          price: r.price,
+          fact_usd: round(r.fact),
+          target_share_pct: pct(r.share),
+          target_usd: round(r.target),
+          deviation_usd: round(r.dev),
+          band_usd: round(r.band),
+          recommended_usd: r.rec,
+          user_amount_usd: r.override,
+          final_amount_usd: r.amount,
+          return_90d_pct: pct(returns[r.ticker]?.d90),
+          return_ytd_pct: pct(returns[r.ticker]?.ytd),
+          return_1y_pct: pct(returns[r.ticker]?.y1),
+        })),
       }),
     });
     if (!resp.ok) throw new Error(`Worker вернул ошибку ${resp.status}`);
@@ -3647,7 +3659,22 @@ function wireRebalanceInputs() {
   const urlInput = document.getElementById("rpWorkerUrl");
   urlInput.value = rpWorkerUrl;
   urlInput.addEventListener("change", () => { rpWorkerUrl = urlInput.value.trim(); rpSaveState(); });
-  document.getElementById("rpAddTrancheBtn").addEventListener("click", rpAddTranche);
+  document.getElementById("rpDepositInput").addEventListener("change", (e) => {
+    const val = e.target.value.trim();
+    rpDeposit = val === "" ? null : Math.max(0, parseNum(val));
+    rpSaveState();
+    rpRenderAll();
+  });
+  document.getElementById("rpResetOverridesBtn").addEventListener("click", () => {
+    rpOverrides = {};
+    rpSaveState();
+    rpRenderAll();
+  });
+  document.getElementById("rpReviewDoneBtn").addEventListener("click", () => {
+    rpLastReview = rpTodayISO();
+    rpSaveState();
+    rpRenderReview();
+  });
   document.getElementById("rpRefreshBtn").addEventListener("click", rpRefreshRecommendation);
   rpRenderAll();
 }

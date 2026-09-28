@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=34" />
+<link rel="stylesheet" href="style.css?v=35" />
 </head>
 <body>
 
@@ -68,7 +68,7 @@
   <section class="panel goal-jars-panel" aria-label="Общий прогресс по целям">
     <div class="panel-header">
       <h2>Общий прогресс по целям</h2>
-      <span class="panel-note">4 цели · банки заполняются от факта к плану</span>
+      <span class="panel-note">4 цели · банки заполняются от факта к плану, затем свободными деньгами: пенсия → подушка → обучение → квартира</span>
     </div>
 
     <div class="goal-jars-row">
@@ -93,7 +93,8 @@
           </div>
 
           <div class="goal-jar-section goal-jar-section--manual">
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_pension" min="0" step="1000" placeholder="0" aria-label="Добавить вручную, USD" />
+            <div class="goal-jar-fact-label">Из свободных денег</div>
+            <div class="goal-jar-auto-value goal-jar-cash-value" id="goalCash_pension">—</div>
           </div>
 
           <div class="goal-jar-total-row">
@@ -123,7 +124,8 @@
           </div>
 
           <div class="goal-jar-section goal-jar-section--manual">
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_education" min="0" step="1000" placeholder="0" aria-label="Добавить вручную, EUR" />
+            <div class="goal-jar-fact-label">Из свободных денег</div>
+            <div class="goal-jar-auto-value goal-jar-cash-value" id="goalCash_education">—</div>
           </div>
 
           <div class="goal-jar-total-row">
@@ -145,8 +147,14 @@
         </div>
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_apartment">—</div>
-          <div class="goal-jar-section goal-jar-section--manual goal-jar-section--first">
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_apartment" min="0" step="1000" placeholder="0" aria-label="Факт, EUR" />
+          <div class="goal-jar-section">
+            <div class="goal-jar-fact-label">Факт</div>
+            <div class="goal-jar-auto-value goal-jar-auto-value--none">—</div>
+          </div>
+
+          <div class="goal-jar-section goal-jar-section--manual">
+            <div class="goal-jar-fact-label">Из свободных денег</div>
+            <div class="goal-jar-auto-value goal-jar-cash-value" id="goalCash_apartment">—</div>
           </div>
           <div class="goal-jar-total-row">
             <span class="goal-jar-total-label">Итого</span>
@@ -167,8 +175,14 @@
         </div>
         <div class="goal-jar-caption">
           <div class="goal-jar-plan" id="goalPlan_cushion">—</div>
-          <div class="goal-jar-section goal-jar-section--manual goal-jar-section--first">
-            <input class="goal-jar-fact-input" type="number" id="goalFactInput_cushion" min="0" step="1000" placeholder="0" aria-label="Факт, EUR" />
+          <div class="goal-jar-section">
+            <div class="goal-jar-fact-label">Факт</div>
+            <div class="goal-jar-auto-value goal-jar-auto-value--none">—</div>
+          </div>
+
+          <div class="goal-jar-section goal-jar-section--manual">
+            <div class="goal-jar-fact-label">Из свободных денег</div>
+            <div class="goal-jar-auto-value goal-jar-cash-value" id="goalCash_cushion">—</div>
           </div>
           <div class="goal-jar-total-row">
             <span class="goal-jar-total-label">Итого</span>
@@ -191,7 +205,7 @@
           <div class="goal-overall-seg-pct" id="goalOverallAutoPct">—</div>
         </div>
         <div class="goal-overall-seg-label goal-overall-seg-label--manual" id="goalOverallSegManual">
-          <div class="goal-overall-seg-tag">вручную</div>
+          <div class="goal-overall-seg-tag">из свободных денег</div>
           <div class="goal-overall-seg-sum" id="goalOverallManualSum">—</div>
           <div class="goal-overall-seg-pct" id="goalOverallManualPct">—</div>
         </div>
@@ -202,6 +216,28 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <section class="panel free-cash-panel" aria-label="Свободные деньги">
+    <div class="panel-header">
+      <h2>Свободные деньги</h2>
+      <span class="panel-note">где лежат непроинвестированные деньги · хранится в этом браузере</span>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table free-cash-table">
+        <colgroup><col style="width:44%"><col style="width:20%"><col style="width:12%"><col style="width:18%"><col style="width:6%"></colgroup>
+        <thead>
+          <tr><th>Источник</th><th class="num">Сумма</th><th>Валюта</th><th class="num">Всего, $</th><th></th></tr>
+        </thead>
+        <tbody id="freeCashBody"></tbody>
+        <tfoot>
+          <tr class="free-cash-total"><td colspan="3">Итого</td><td class="num" id="freeCashTotal">—</td><td></td></tr>
+          <tr class="free-cash-leftover"><td colspan="3">Не распределено по целям</td><td class="num" id="freeCashLeftover">—</td><td></td></tr>
+        </tfoot>
+      </table>
+    </div>
+    <button class="add-row-btn" id="freeCashAddBtn">+ добавить строку</button>
+    <p class="free-cash-rate" id="freeCashRate"></p>
   </section>
 
 </div>
@@ -309,6 +345,19 @@
     </div>
     <div id="assetCheckboxes" class="asset-checkbox-row"></div>
     <div class="chart-canvas-wrap"><canvas id="assetsReturnChart"></canvas></div>
+  </section>
+
+  <!-- Year / quarter grid -->
+  <section class="panel monthly-grid-panel" aria-label="Доходность по годам и кварталам">
+    <div class="panel-header">
+      <h2>Доходность по годам и кварталам</h2>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table month-grid-table" id="yearGridTable">
+        <thead id="yearGridHead"></thead>
+        <tbody id="yearGridBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- Drill-down: monthly grid -->
@@ -600,6 +649,19 @@
     </div>
     <div id="bAssetCheckboxes" class="asset-checkbox-row"></div>
     <div class="chart-canvas-wrap"><canvas id="bAssetsReturnChart"></canvas></div>
+  </section>
+
+  <!-- Year / quarter grid -->
+  <section class="panel monthly-grid-panel" aria-label="Доходность по годам и кварталам">
+    <div class="panel-header">
+      <h2>Доходность по годам и кварталам</h2>
+    </div>
+    <div class="table-scroll">
+      <table class="ledger-table month-grid-table" id="bYearGridTable">
+        <thead id="bYearGridHead"></thead>
+        <tbody id="bYearGridBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- Drill-down: monthly grid -->
@@ -1208,49 +1270,67 @@
   <section class="panel rp-config-panel" aria-label="Настройка">
     <div class="panel-header">
       <h2>План докупок / ребалансировки</h2>
-      <span class="panel-note">триггерная сетка по просадке + дедлайну · план хранится локально в этом браузере</span>
+      <span class="panel-note">пропорции — из «портфель 500к» в Google · внесение и ручные суммы хранятся в этом браузере</span>
     </div>
-    <label class="pension-input rp-worker-url-input">
-      <span class="figure-label">URL Cloudflare Worker (после деплоя)</span>
-      <input type="text" id="rpWorkerUrl" placeholder="https://rebalance-worker.ВАШ-СУБДОМЕН.workers.dev" />
-    </label>
+    <div class="rp-config-row">
+      <label class="pension-input">
+        <span class="figure-label">Разовое внесение, $ (пусто = до цели)</span>
+        <input type="number" id="rpDepositInput" min="0" step="100" />
+      </label>
+      <label class="pension-input rp-worker-url-input">
+        <span class="figure-label">URL Cloudflare Worker (после деплоя)</span>
+        <input type="text" id="rpWorkerUrl" placeholder="https://rebalance-worker.ВАШ-СУБДОМЕН.workers.dev" />
+      </label>
+    </div>
   </section>
 
-  <section class="panel pension-kpi-panel rp-kpi-panel" aria-label="Не хватает денег на план">
+  <section class="panel pension-kpi-panel rp-kpi-panel" aria-label="Портфель, внесение, кэш">
     <div class="kpi-cell">
-      <div class="kpi-label">Нужно на все докупки, $</div>
-      <div class="kpi-value" id="rpKpiNeeded">—</div>
+      <div class="kpi-label">Портфель сейчас / цель, $</div>
+      <div class="kpi-value" id="rpKpiPortfolio">—</div>
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Свободный кэш сейчас, $</div>
-      <div class="kpi-value" id="rpKpiCash">—</div>
+      <div class="kpi-label">Внесение, $</div>
+      <div class="kpi-value" id="rpKpiDeposit">—</div>
     </div>
     <div class="kpi-divider" aria-hidden="true"></div>
     <div class="kpi-cell">
-      <div class="kpi-label">Не хватает / запас, $</div>
-      <div class="kpi-value" id="rpKpiShortfall">—</div>
+      <div class="kpi-label">Кэш после сделок, $</div>
+      <div class="kpi-value" id="rpKpiCashAfter">—</div>
     </div>
   </section>
 
   <section class="panel rp-assets-panel" aria-label="Активы — что делать">
     <div class="panel-header">
       <h2>Активы — что делать сейчас</h2>
-      <span class="panel-note">сумма к покупке/продаже — живьём из «портфель 500к» (план минус факт), не вручную</span>
+      <button class="link-btn" id="rpResetOverridesBtn">сбросить ручные суммы</button>
     </div>
+    <p class="rp-legend">
+      <strong>Набор</strong> — портфель ещё не на цели, актив не достиг плана: покупаем недостающее из внесения
+      (если денег меньше, чем недобор, — всем пропорционально). ·
+      <strong>Контроль</strong> — актив набран: держим, пока он в коридоре вокруг цели; коридор = меньшее из
+      5% портфеля и 25% целевой суммы актива. Вышел за коридор — сделка до цели (продать избыток / докупить). ·
+      <strong>Цель</strong> — доля актива в плане «портфель 500к» × размер портфеля после внесения. ·
+      <strong>Ваша сумма</strong> — своя сумма вместо рекомендации (+ купить, − продать), пусто = рекомендация.
+    </p>
     <div class="table-scroll">
       <table class="ledger-table rp-assets-table">
         <colgroup>
-          <col style="width:9%"><col style="width:13%"><col style="width:10%">
-          <col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:33%">
+          <col style="width:7%"><col style="width:8%"><col style="width:9%"><col style="width:9%">
+          <col style="width:11%"><col style="width:9%"><col style="width:10%"><col style="width:6%">
+          <col style="width:9%"><col style="width:22%">
         </colgroup>
         <thead>
           <tr>
             <th>Актив</th>
-            <th class="num">Докупить/продать, $</th>
-            <th class="num">Текущая цена</th>
-            <th>Дата закрытия</th>
-            <th class="num">Кол-во траншей</th>
+            <th>Режим</th>
+            <th class="num">Факт, $</th>
+            <th class="num">Цель, $</th>
+            <th class="num">Доля факт / цель</th>
+            <th class="num">Рекомендация, $</th>
+            <th class="num">Ваша сумма, $</th>
+            <th class="num">≈ шт</th>
             <th>Команда</th>
             <th>Пояснение</th>
           </tr>
@@ -1260,53 +1340,12 @@
     </div>
   </section>
 
-  <section class="panel rp-table-panel" aria-label="Таблица плана траншей">
+  <section class="panel rp-review-panel" aria-label="Квартальный обзор">
     <div class="panel-header">
-      <h2>Транши покупок и продаж</h2>
-      <span class="panel-note">детали по каждому траншу отдельно · статус и факт исполнения меняются здесь вручную</span>
+      <h2>Квартальный обзор</h2>
+      <button class="link-btn" id="rpReviewDoneBtn">отметить обзор проведённым сегодня</button>
     </div>
-    <p class="rp-legend">
-      <strong>Тип</strong> — покупка (на просадке) или продажа (напр. к сроку). ·
-      <strong>Триггер %</strong> — просадка/рост от пика, при которой транш активируется. ·
-      <strong>Статус</strong> — pending (ждём) / done (исполнено) / skipped (пропущено). ·
-      <strong>Сумма (override)</strong> — оставь пустым/0, чтобы сумма бралась живьём из «портфель 500к»;
-      заполни только если для этого актива нет план/факта в Sheet (например продажа GOOGL к сроку). ·
-      Транши с циклом «авто» — черновая раскладка: укажи «Дату закрытия» (и, если нужно, «Кол-во
-      траншей» — по умолчанию 3) по активу в таблице выше, и здесь появятся транши (-10%/-20%/-30%/...
-      от исторического пика с шагом -10% на транш, сумма поровну округлена до сотен $, дедлайны
-      равномерно до даты закрытия) — правь любое поле как обычную ручную строку, смена даты или
-      количества траншей пересоберёт авто-транши заново.
-    </p>
-    <div class="table-scroll">
-      <table class="ledger-table rp-table">
-        <colgroup>
-          <col style="width:8%"><col style="width:8%"><col style="width:5%"><col style="width:6%">
-          <col style="width:7%"><col style="width:6%"><col style="width:8%"><col style="width:9%">
-          <col style="width:9%"><col style="width:9%"><col style="width:7%"><col style="width:7%">
-          <col style="width:7%"><col style="width:4%">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Актив</th>
-            <th>Тип</th>
-            <th class="num">Транш №</th>
-            <th class="num">Триггер %</th>
-            <th class="num">Триггер-цена</th>
-            <th class="num">Пик</th>
-            <th class="num">Сумма (override), $</th>
-            <th>Дедлайн</th>
-            <th>Статус</th>
-            <th>Дата исп.</th>
-            <th class="num">Цена исп.</th>
-            <th class="num">Сумма исп., $</th>
-            <th>Цикл</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="rpTableBody"></tbody>
-      </table>
-    </div>
-    <button class="add-row-btn" id="rpAddTrancheBtn">+ добавить транш</button>
+    <p class="rp-review-status" id="rpReviewStatus"></p>
   </section>
 
   <section class="panel rp-recommend-panel" aria-label="Рекомендация от Claude">
@@ -1316,7 +1355,7 @@
     </div>
     <button class="btn-primary" id="rpRefreshBtn">Обновить рекомендацию</button>
     <div class="rp-recommend-box" id="rpRecommendBox">
-      <p class="rp-recommend-placeholder">Нажмите «Обновить рекомендацию», чтобы получить свежий совет по текущим ценам и дедлайнам.</p>
+      <p class="rp-recommend-placeholder">Нажмите «Обновить рекомендацию» — Claude разберёт таблицу выше: что сдвинулось за квартал, почему такие сделки, какие риски.</p>
     </div>
     <div class="rp-recommend-meta" id="rpRecommendMeta"></div>
   </section>
@@ -1334,6 +1373,6 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="config.js?v=13"></script>
-<script src="app.js?v=42"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>

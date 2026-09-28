@@ -432,7 +432,7 @@ body {
   margin-top: 4px;
   border-top: 1px solid var(--hairline-soft);
 }
-.goal-jar-section--first { border-top: none; padding-top: 0; margin-top: 0; }
+.goal-jar-auto-value--none { color: var(--text-faint); }
 .goal-jar-auto-value {
   font-family: var(--font-mono);
   font-size: 30px;
@@ -440,22 +440,21 @@ body {
   color: var(--accent-goal);
   line-height: 1.1;
 }
-.goal-jar-fact-input {
-  width: 100%;
-  min-height: 52px;
-  background: var(--surface-raised);
-  border: 1px solid var(--accent-goal-light);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 30px;
-  font-weight: 700;
-  text-align: center;
-  padding: 8px;
-  border-radius: var(--radius);
+.goal-jar-cash-value { color: var(--accent-goal-light); }
+
+/* Таблица «Свободные деньги» (вкладка «Общий») */
+.free-cash-panel { grid-column: span 12; }
+.free-cash-table { table-layout: fixed; width: 100%; }
+.free-cash-table input, .free-cash-table select {
+  width: 100%; box-sizing: border-box; background: var(--surface-raised); border: 1px solid var(--hairline);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 13px; padding: 5px 6px; border-radius: var(--radius);
 }
-.goal-jar-fact-input:focus { outline: none; border-color: var(--accent-goal); }
-.goal-jar-section--first .goal-jar-fact-input { border-color: var(--hairline); }
-.goal-jar-section--first .goal-jar-fact-input:focus { border-color: var(--accent-goal); }
+.free-cash-table input[type="number"] { text-align: right; }
+.free-cash-table input:focus, .free-cash-table select:focus { outline: none; border-color: var(--accent-goal); }
+.free-cash-table tfoot td { font-family: var(--font-mono); font-weight: 600; }
+.free-cash-total td { border-top: 1px solid var(--hairline); color: var(--text-primary); }
+.free-cash-leftover td { color: var(--text-muted); font-weight: 400; }
+.free-cash-rate { margin: 10px 0 0; font-size: 11.5px; color: var(--text-faint); font-family: var(--font-mono); }
 .goal-jar-total-row {
   width: 100%;
   display: flex;
@@ -1096,9 +1095,11 @@ input[type="range"]::-moz-range-thumb {
 /* ---------------- План докупок / ребалансировки ---------------- */
 .rp-config-panel { grid-column: span 12; }
 .rp-assets-panel { grid-column: span 12; }
-.rp-table-panel { grid-column: span 12; }
+.rp-review-panel { grid-column: span 12; }
 .rp-recommend-panel { grid-column: span 12; }
-.rp-worker-url-input { max-width: 460px; }
+.rp-config-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.rp-worker-url-input { flex: 1 1 320px; max-width: 460px; }
+.rp-review-status { margin: 0; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); }
 
 .rp-legend {
   margin: 0 0 12px; font-size: 11.5px; color: var(--text-faint); font-family: var(--font-body); line-height: 1.6;
@@ -1108,13 +1109,13 @@ input[type="range"]::-moz-range-thumb {
 /* table-layout: fixed + colgroup (в HTML) — таблицы всегда укладываются в
    ширину панели, без горизонтальной прокрутки. Переполнение внутри ячейки
    (длинное значение в узкой колонке) обрезается, а не раздвигает таблицу. */
-.rp-assets-table, .rp-table { table-layout: fixed; width: 100%; }
-.rp-assets-table th, .rp-table th {
+.rp-assets-table { table-layout: fixed; width: 100%; }
+.rp-assets-table th {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; padding: 6px 4px;
 }
-.rp-assets-table td, .rp-table td { white-space: nowrap; overflow: hidden; padding: 6px 4px; }
+.rp-assets-table td { white-space: nowrap; overflow: hidden; padding: 6px 4px; }
 
-.rp-assets-table input[type="date"], .rp-assets-table input[type="number"] {
+.rp-assets-table input[type="number"] {
   background: var(--surface-raised); border: 1px solid var(--hairline); color: var(--text-primary);
   font-family: var(--font-mono); font-size: 12px; padding: 3px 4px; border-radius: var(--radius);
   width: 100%; box-sizing: border-box;
@@ -1128,24 +1129,9 @@ input[type="range"]::-moz-range-thumb {
 }
 .rp-cmd--act { color: var(--negative); border: 1px solid var(--negative); }
 .rp-cmd--hold { color: var(--text-muted); border: 1px solid var(--hairline); }
+.rp-cmd--warn { color: var(--accent-brass); border: 1px solid var(--accent-brass-dim); }
 .rp-explain { white-space: normal !important; color: var(--text-muted); font-size: 12px; overflow: visible; }
 
-.rp-table input[type="text"], .rp-table input[type="number"], .rp-table input[type="date"] {
-  width: 100%; box-sizing: border-box; border: none; background: transparent; color: var(--text-primary);
-  font-family: var(--font-mono); font-size: 12px; padding: 4px 2px;
-}
-.rp-table input[type="number"] { text-align: right; }
-.rp-table input:focus { outline: none; background: var(--surface-raised); border-radius: 3px; }
-.rp-table select {
-  width: 100%; box-sizing: border-box; background: var(--surface-raised); border: 1px solid var(--hairline);
-  color: var(--text-primary); font-family: var(--font-mono); font-size: 11.5px; padding: 3px 2px; border-radius: var(--radius);
-}
-.rp-status-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; white-space: normal; }
-.rp-badge {
-  font-size: 10px; border-radius: 3px; padding: 2px 5px; white-space: nowrap; display: inline-block;
-}
-.rp-badge--wait { color: var(--text-muted); border: 1px solid var(--hairline); }
-.rp-badge--hit { color: var(--negative); border: 1px solid var(--negative); }
 .rp-recommend-box {
   margin-top: 14px; padding: 14px 16px; background: var(--surface-raised);
   border: 1px solid var(--hairline); border-radius: var(--radius); min-height: 40px;
