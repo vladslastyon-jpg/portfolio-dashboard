@@ -2006,7 +2006,7 @@ function renderAllocation() {
       groupWrap.innerHTML = `
         <div class="alloc-legend-group-row">
           <span class="alloc-name"><span class="swatch" style="background:${groupColor}"></span><span class="label-text">${g}</span></span>
-          <span class="alloc-figures">${Math.round(groupWeight)}% · ${fmtMoneyNoDecimals(groupTotals[g])}</span>
+          <span class="alloc-figures"><span class="alloc-pct">${Math.round(groupWeight)}%</span><span class="alloc-amt">${fmtMoneyNoDecimals(groupTotals[g])}</span></span>
         </div>`;
       let shadeIdx = 0;
       derived.allocation.filter((a) => a.group === g).forEach((a) => {
@@ -2016,7 +2016,7 @@ function renderAllocation() {
         row.className = "alloc-legend-ticker-row";
         row.innerHTML = `
           <span class="alloc-name"><span class="swatch" style="background:${tickerColor}"></span><span class="label-text">${a.ticker}</span></span>
-          <span class="alloc-figures">${Math.round(a.weight * 100)}% · ${fmtMoneyNoDecimals(a.value)}</span>`;
+          <span class="alloc-figures"><span class="alloc-pct">${Math.round(a.weight * 100)}%</span><span class="alloc-amt">${fmtMoneyNoDecimals(a.value)}</span></span>`;
         groupWrap.appendChild(row);
       });
       legend.appendChild(groupWrap);

@@ -1022,6 +1022,10 @@ input[type="range"]::-moz-range-thumb {
 }
 .alloc-legend-ticker-row .alloc-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .alloc-legend-ticker-row .alloc-figures { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Цифры легенды — две ровные колонки: % и сумма, выравнивание по правому краю */
+.alloc-legend .alloc-figures { display: flex; gap: 14px; flex-shrink: 0; }
+.alloc-legend .alloc-pct { width: 40px; text-align: right; }
+.alloc-legend .alloc-amt { width: 84px; text-align: right; }
 
 /* Ledger-style tables */
 .ledger-table {
