@@ -261,6 +261,7 @@ function createProfile(opts) {
     mdSummary: null,
     portfolioMonthly: null,
     transactions: null,
+    transactionsAdj: null,
     assetHistory: null,
     goldHistory: null,
     dashboardInputs: null,
@@ -275,6 +276,7 @@ function createProfile(opts) {
     monthly: [],
     allocation: [],
     txRows: [],
+    txCalc: [],
     cashflowMonthly: [],
     goals: [],
   };
@@ -301,7 +303,7 @@ function buildRanges() {
     `${s.dashboardInputs}!A1:D50`,
     `${s.actualPortfolio}!B1:T20`,
     `${s.portfolio500k}!A1:G30`,
-  ];
+  ].concat(s.transactionsAdj ? [`${s.transactionsAdj}!A1:E3000`] : []);
 }
 
 async function fetchAll() {
@@ -331,6 +333,7 @@ async function fetchAll() {
     raw.dashboardInputs = vr[6].values || [];
     raw.actualPortfolio = vr[7].values || [];
     raw.portfolio500k = vr[8].values || [];
+    raw.transactionsAdj = sheets.transactionsAdj ? ((vr[9] && vr[9].values) || []) : null;
 
     computeAll();
     renderAll();
@@ -866,7 +869,7 @@ function priceOnOrAfter(ticker, date) {
 
 function sharesAsOfDate(ticker, date) {
   let sum = 0;
-  derived.txRows.forEach((t) => {
+  derived.txCalc.forEach((t) => {
     if (t.ticker !== ticker) return;
     const d = parseSheetDate(t.date);
     if (d && d <= date) sum += t.qty;
@@ -924,7 +927,7 @@ function computeAssetGrowthSeries(period) {
 function computeDailyCashflowMap() {
   const tracked = derived.trackedTickers || null; // тикеры, реально отслеживаемые в Asset_History
   const map = {};
-  derived.txRows.forEach((t) => {
+  derived.txCalc.forEach((t) => {
     if (t.ticker === "Cash") return;
     // Сделки по тикерам, которых нет в Asset_History (старые отдельные акции,
     // распроданные до перехода на текущую ETF-стратегию), не должны искажать
@@ -1073,7 +1076,7 @@ function computeMonthDrilldown(year, monthIndex, monthEntry) {
     // тикеров (то же самое, что уже используется для строки "Портфель
     // целиком" через Portfolio_Monthly, теперь согласовано и по тикерам).
     let cfTotal = 0, weightedCf = 0;
-    derived.txRows.forEach((t) => {
+    derived.txCalc.forEach((t) => {
       if (t.ticker !== ticker) return;
       const d = parseSheetDate(t.date);
       if (!d || d <= dayBeforeStart || d > end) return;
@@ -1174,6 +1177,22 @@ function computeTransactions() {
     out.push({ date: r[0], ticker: r[1], qty, price, amount: qty * price });
   }
   derived.txRows = out;
+
+  // Для РАСЧЁТОВ (стоимость по дням, доходность, кол-во бумаг на дату) берём
+  // сделки, скорректированные под сплиты (лист «Транзакции_скорр»): цены в
+  // Asset_History уже пересчитаны под сплиты, и реальные количества из
+  // «Транзакции» с ними не стыкуются (SOXX до сплитов давал обвал −77%).
+  // Если листа нет (например, у портфеля Алены) — считаем по «Транзакции».
+  const adjRows = raw.transactionsAdj || [];
+  const calc = [];
+  for (let i = 0; i < adjRows.length; i++) {
+    const r = adjRows[i];
+    if (!r || !r[0] || !r[1] || !parseSheetDate(r[0])) continue; // пропускаем заголовок
+    const qty = parseNum(r[2]);
+    const price = parseNum(r[3]);
+    calc.push({ date: r[0], ticker: r[1], qty, price, amount: qty * price });
+  }
+  derived.txCalc = calc.length ? calc : out;
 }
 
 function parseGoals() {
@@ -1387,7 +1406,7 @@ function computeAllocation() {
 
 function computeCashflowMonthly() {
   const byMonth = {};
-  derived.txRows.forEach((t) => {
+  derived.txCalc.forEach((t) => {
     if (t.ticker === "Cash") return;
     const d = parseSheetDate(t.date);
     if (!d) return;
@@ -1400,7 +1419,7 @@ function computeCashflowMonthly() {
 
 function computeCashflowDaily() {
   const byDay = {};
-  derived.txRows.forEach((t) => {
+  derived.txCalc.forEach((t) => {
     if (t.ticker === "Cash") return;
     const d = parseSheetDate(t.date);
     if (!d) return;
@@ -1428,7 +1447,7 @@ function computeDailyPortfolioValue() {
   derived.trackedTickers = new Set(tickerCols.map((tc) => tc.ticker));
 
   const txByTicker = {};
-  derived.txRows.forEach((t) => {
+  derived.txCalc.forEach((t) => {
     if (t.ticker === "Cash") return;
     if (!txByTicker[t.ticker]) txByTicker[t.ticker] = [];
     txByTicker[t.ticker].push(t);

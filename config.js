@@ -20,6 +20,11 @@ window.DASHBOARD_CONFIG = {
     mdSummary: "MD_Summary",
     portfolioMonthly: "Portfolio_Monthly",
     transactions: "Транзакции",
+    // Скрытый лист, который строит Apps Script: те же сделки, но количество и
+    // цена пересчитаны под сплиты (SOXX 3:1 ×2 и т.п.). Нужен для расчётов
+    // стоимости/доходности, т.к. Asset_History хранит цены, уже скорректированные
+    // под сплиты. Таблица сделок на сайте по-прежнему показывает «Транзакции».
+    transactionsAdj: "Транзакции_скорр",
     assetHistory: "Asset_History",
     goldHistory: "Gold_History",
     dashboardInputs: "Dashboard_Inputs",
